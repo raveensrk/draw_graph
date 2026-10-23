@@ -42,6 +42,8 @@ pub struct Node {
     pub y: f32,
     /// Dashed outline: folded, or a repeat that hides its branch.
     pub dashed: bool,
+    /// The first line of its Note, shortened: drawn under the label.
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -63,6 +65,8 @@ pub struct Edge {
     pub label: Option<String>,
     /// Drawn as an elbow, with no arrowhead (tree view).
     pub elbow: bool,
+    /// The first line of its Note, shortened: drawn by the edge.
+    pub note: Option<String>,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -90,6 +94,26 @@ pub const PLAIN: Marks = Marks {
     repeat: "^",
     looped: "@",
 };
+
+/// How much of a note the canvas shows: its first line, this many characters.
+const NOTE_CHARS: usize = 40;
+
+/// A note as the canvas shows it: the first line, cut to NOTE_CHARS with "…".
+pub fn brief(note: &str) -> Option<String> {
+    let line = note.lines().next()?.trim();
+    if line.is_empty() {
+        return None;
+    }
+    if line.chars().count() <= NOTE_CHARS {
+        return Some(line.to_string());
+    }
+    Some(format!("{}…", line.chars().take(NOTE_CHARS - 1).collect::<String>().trim_end()))
+}
+
+/// The Note field of a record's fields, shortened.
+fn note_of(fields: &[(String, String)]) -> Option<String> {
+    fields.iter().find(|(k, _)| k == "Note").and_then(|(_, v)| brief(v))
+}
 
 /// Room between tree columns and rows, in graph units.
 const GAP: f32 = 30.0;
@@ -180,6 +204,7 @@ pub fn graph(m: &Model, layout: Layout, marks: &Marks) -> Scene {
                 x,
                 y,
                 dashed: n.hidden > 0,
+                note: note_of(&n.fields),
             }
         })
         .collect();
@@ -194,6 +219,7 @@ pub fn graph(m: &Model, layout: Layout, marks: &Marks) -> Scene {
             x,
             y,
             dashed: true,
+            note: note_of(&g.fields),
         });
     }
 
@@ -233,13 +259,14 @@ pub fn graph(m: &Model, layout: Layout, marks: &Marks) -> Scene {
             style: e.style.clone(),
             label: e.label.clone(),
             elbow: false,
+            note: note_of(&e.fields),
         })
         .collect();
     Scene { nodes, boxes, edges }
 }
 
 /// The tree view: items placed by core::tree, joined parent to child.
-pub fn tree_scene(items: &[Item], marks: &Marks) -> Scene {
+pub fn tree_scene(items: &[Item], m: &Model, marks: &Marks) -> Scene {
     let nodes = items
         .iter()
         .map(|i| {
@@ -261,6 +288,7 @@ pub fn tree_scene(items: &[Item], marks: &Marks) -> Scene {
                 x: i.x as f32,
                 y: i.y as f32,
                 dashed: i.repeat || i.looped,
+                note: m.nodes.iter().find(|n| n.name == i.name).and_then(|n| note_of(&n.fields)),
             }
         })
         .collect();
@@ -280,6 +308,11 @@ pub fn tree_scene(items: &[Item], marks: &Marks) -> Scene {
                 style,
                 label,
                 elbow: true,
+                note: i
+                    .edge
+                    .as_ref()
+                    .and_then(|(index, _, _)| m.edges.iter().find(|e| e.index == *index))
+                    .and_then(|e| note_of(&e.fields)),
             })
         })
         .collect();
@@ -326,6 +359,25 @@ mod tests {
     }
 
     #[test]
+    fn notes_are_shortened_to_their_first_line() {
+        assert_eq!(brief("one line"), Some("one line".into()));
+        assert_eq!(brief("first\nsecond"), Some("first".into()));
+        assert_eq!(brief("   \nsecond"), None);
+        let long = brief("a note that goes on and on well past forty characters").unwrap();
+        assert!(long.ends_with('…') && long.chars().count() <= 40, "{long}");
+
+        let s = graph(&model(EXAMPLE), Layout::Manual, &PLAIN);
+        let bash = s.nodes.iter().find(|n| n.id == "n:Bash").unwrap();
+        assert_eq!(bash.note.as_deref(), Some("Also stands for shell scripting."));
+        let js = s
+            .edges
+            .iter()
+            .find_map(|e| e.note.clone().filter(|n| n.starts_with("Plain JavaScript works")))
+            .unwrap();
+        assert!(js.ends_with('…') && js.chars().count() == 40, "{js}");
+    }
+
+    #[test]
     fn tree_items_become_nodes_and_elbows() {
         let m = model(EXAMPLE);
         let spec = Spec {
@@ -334,7 +386,7 @@ mod tests {
             direction: "right".into(),
             ..Spec::default()
         };
-        let s = tree_scene(&tree(&m, &spec), &FANCY);
+        let s = tree_scene(&tree(&m, &spec), &m, &FANCY);
         assert_eq!(s.nodes.len(), 7);
         assert!(s.edges.iter().all(|e| e.elbow && e.from == "t:0"));
     }

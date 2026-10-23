@@ -12,6 +12,7 @@ use eframe::egui::{self, Color32, RichText};
 
 use crate::app::App;
 use crate::draw::{ACCENT, BAD, MUTED};
+use crate::scene::brief;
 
 pub fn show(app: &mut App, ui: &mut egui::Ui) {
     egui::ScrollArea::vertical().show(ui, |ui| {
@@ -216,29 +217,88 @@ fn node(app: &mut App, ui: &mut egui::Ui, name: &str) {
     };
     form(app, ui, &format!("n:{}", n.name), &inputs, &n.fields, skip.as_deref(), &save);
 
-    let edges: Vec<(usize, String)> = app
-        .full
-        .edges
-        .iter()
-        .filter(|e| e.from == n.name || e.to == n.name)
-        .map(|e| {
-            let kind = e
-                .label
-                .clone()
-                .or_else(|| e.fields.iter().find(|(f, _)| f == "Kind").map(|(_, v)| v.clone()))
-                .unwrap_or_default();
-            let line = if e.from == n.name {
-                format!("→ {}  {kind}", e.to)
-            } else {
-                format!("← {}  {kind}", e.from)
-            };
-            (e.index, line)
-        })
-        .collect();
-    section(ui, format!("EDGES ({})", edges.len()));
-    for (i, line) in edges {
-        if ui.selectable_label(false, line).clicked() {
-            app.selected = Some(format!("e:{i}"));
+    // Links in two panes: what leads here, and what this leads to.
+    let links = |incoming: bool| -> Vec<Link> {
+        app.full
+            .edges
+            .iter()
+            .filter(|e| if incoming { e.to == n.name } else { e.from == n.name })
+            .map(|e| {
+                let other = if incoming { &e.from } else { &e.to };
+                let kind = e
+                    .label
+                    .clone()
+                    .or_else(|| e.fields.iter().find(|(f, _)| f == "Kind").map(|(_, v)| v.clone()));
+                Link {
+                    index: e.index,
+                    other: other.clone(),
+                    kind,
+                    note: e.fields.iter().find(|(f, _)| f == "Note").and_then(|(_, v)| brief(v)),
+                    any: e.any.is_some(),
+                }
+            })
+            .collect()
+    };
+    let (ins, outs) = (links(true), links(false));
+    ui.add_space(8.0);
+    pane(ui, &format!("INCOMING ({}) · what leads here", ins.len()), |ui| {
+        link_rows(app, ui, &ins, "←")
+    });
+    ui.add_space(6.0);
+    pane(ui, &format!("OUTGOING ({}) · what this leads to", outs.len()), |ui| {
+        link_rows(app, ui, &outs, "→")
+    });
+}
+
+/// One edge as a node's panel lists it.
+struct Link {
+    index: usize,
+    other: String,
+    kind: Option<String>,
+    note: Option<String>,
+    any: bool,
+}
+
+/// A framed pane with a small title, full width.
+fn pane(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_width(ui.available_width());
+        ui.label(RichText::new(title).color(MUTED).small());
+        body(ui);
+    });
+}
+
+/// Rows of links: the other end (click to go there), the kind, the note, and
+/// a button that opens the edge itself.
+fn link_rows(app: &mut App, ui: &mut egui::Ui, links: &[Link], arrow: &str) {
+    if links.is_empty() {
+        ui.label(RichText::new("none").color(MUTED));
+        return;
+    }
+    for l in links {
+        ui.horizontal_wrapped(|ui| {
+            ui.label(arrow);
+            if ui.link(&l.other).on_hover_text("go to it").clicked() {
+                let kind = if app.full.nodes.iter().any(|n| n.name == l.other) {
+                    "n"
+                } else {
+                    "g"
+                };
+                app.selected = Some(format!("{kind}:{}", l.other));
+            }
+            let mut kind = l.kind.clone().unwrap_or_default();
+            if l.any {
+                kind.push_str(" (or)");
+            }
+            if !kind.is_empty() {
+                ui.label(RichText::new(kind).color(MUTED));
+            }
+            if ui.small_button("link").on_hover_text("open this edge").clicked() {
+                app.selected = Some(format!("e:{}", l.index));
+            }
+        });
+        if let Some(note) = &l.note {
+            ui.label(RichText::new(format!("   {note}")).color(MUTED).small());
         }
     }
 }
@@ -253,11 +313,32 @@ fn edge(app: &mut App, ui: &mut egui::Ui, index: usize) {
     let inputs = app.full.edge_form.clone();
     let save = move |field: String, value: String| Some((Edit::SetEdge { index, field, value }, None));
     form(app, ui, &format!("e:{index}"), &inputs, &e.fields, None, &save);
-    section(ui, "ENDS".into());
-    for (end, name) in [("from", &e.from), ("to", &e.to)] {
-        if ui.selectable_label(false, format!("{end} {name}")).clicked() {
-            app.selected = Some(format!("n:{name}"));
+    // Each end in its own pane: what it is, its tags and note.
+    for (title, name) in [("FROM · the prerequisite end", &e.from), ("TO · the end it leads to", &e.to)] {
+        ui.add_space(6.0);
+        pane(ui, title, |ui| end(app, ui, name));
+    }
+}
+
+/// One end of an edge: a node or a group, with its tags and note.
+fn end(app: &mut App, ui: &mut egui::Ui, name: &str) {
+    let node = app.full.nodes.iter().find(|n| n.name == name).cloned();
+    let (kind, label, tags, fields) = match (&node, app.full.groups.iter().find(|g| g.name == name)) {
+        (Some(n), _) => ("n", n.label.clone(), n.tags.clone(), n.fields.clone()),
+        (None, Some(g)) => ("g", format!("{} (box)", g.label), Vec::new(), g.fields.clone()),
+        (None, None) => {
+            ui.label(RichText::new(format!("{name}: no such node")).color(BAD));
+            return;
         }
+    };
+    if ui.link(RichText::new(label).strong()).on_hover_text("go to it").clicked() {
+        app.selected = Some(format!("{kind}:{name}"));
+    }
+    if !tags.is_empty() {
+        ui.label(RichText::new(tags.join(" · ")).color(MUTED).small());
+    }
+    if let Some(note) = fields.iter().find(|(f, _)| f == "Note").and_then(|(_, v)| brief(v)) {
+        ui.label(RichText::new(note).color(MUTED));
     }
 }
 

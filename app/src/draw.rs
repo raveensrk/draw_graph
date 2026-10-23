@@ -20,8 +20,10 @@ pub const ACCENT: Color32 = Color32::from_rgb(0xe0, 0xb8, 0x4a);
 pub const WARN: Color32 = Color32::from_rgb(0xe0, 0x7a, 0x4a);
 pub const BAD: Color32 = Color32::from_rgb(0xe0, 0x5a, 0x5a);
 
-/// Label size and padding in graph units; zoom scales them.
+/// Label and note sizes and padding in graph units; zoom scales them.
 pub const FONT: f32 = 12.0;
+pub const NOTE: f32 = 10.0;
+const NOTE_GAP: f32 = 2.0;
 const PAD: Vec2 = Vec2::new(10.0, 6.0);
 const DIAMOND_PAD: f32 = 1.6;
 const BOX_PAD: f32 = 16.0;
@@ -60,15 +62,26 @@ impl Geometry {
     }
 }
 
-/// Lay a scene out: `measure(label)` gives the text size at zoom 1, `to`
+/// The text a measure takes: `(text, font size)` gives its size at zoom 1.
+pub type Measure<'a> = dyn Fn(&str, f32) -> Vec2 + 'a;
+
+/// Lay a scene out: `measure` sizes the label (and the note under it), `to`
 /// maps graph units to the target space, `zoom` scales sizes.
-pub fn geometry(scene: &Scene, measure: &dyn Fn(&str) -> Vec2, to: &dyn Fn(Pos2) -> Pos2, zoom: f32) -> Geometry {
+pub fn geometry(scene: &Scene, measure: &Measure, to: &dyn Fn(Pos2) -> Pos2, zoom: f32) -> Geometry {
     let mut g = Geometry {
         zoom,
         ..Geometry::default()
     };
     for n in &scene.nodes {
-        let mut size = measure(&n.label) + PAD * 2.0;
+        let label = measure(&n.label, FONT);
+        let text = match &n.note {
+            Some(note) => {
+                let s = measure(note, NOTE);
+                Vec2::new(label.x.max(s.x), label.y + NOTE_GAP + s.y)
+            }
+            None => label,
+        };
+        let mut size = text + PAD * 2.0;
         if n.shape == "diamond" {
             size *= DIAMOND_PAD;
         }
@@ -194,9 +207,19 @@ pub fn paint(painter: &Painter, scene: &Scene, g: &Geometry, marks: &Marks) {
                 Stroke::NONE,
             ));
         }
+        let mid = pts[0] + (pts[pts.len() - 1] - pts[0]) / 2.0;
         if let Some(l) = &e.label {
-            let mid = pts[0] + (pts[pts.len() - 1] - pts[0]) / 2.0;
             painter.text(mid, Align2::CENTER_CENTER, l, FontId::proportional(11.0 * z), MUTED);
+        }
+        if let Some(note) = &e.note {
+            let below = if e.label.is_some() { 12.0 * z } else { 0.0 };
+            painter.text(
+                mid + Vec2::new(0.0, below),
+                Align2::CENTER_CENTER,
+                note,
+                FontId::proportional(NOTE * z),
+                MUTED,
+            );
         }
     }
 
@@ -223,7 +246,27 @@ pub fn paint(painter: &Painter, scene: &Scene, g: &Geometry, marks: &Marks) {
         if marks.selected == Some(n.id.as_str()) {
             painter.rect_stroke(r, RADIUS * z, Stroke::new(3.0, ACCENT), StrokeKind::Outside);
         }
-        painter.text(r.center(), Align2::CENTER_CENTER, &n.label, FontId::proportional(FONT * z), TEXT);
+        match &n.note {
+            Some(note) => {
+                // Label on top, the note under it, the pair centred.
+                let lift = (NOTE + NOTE_GAP) * 0.6 * z;
+                painter.text(
+                    r.center() - Vec2::new(0.0, lift),
+                    Align2::CENTER_CENTER,
+                    &n.label,
+                    FontId::proportional(FONT * z),
+                    TEXT,
+                );
+                painter.text(
+                    r.center() + Vec2::new(0.0, (FONT + NOTE_GAP) * 0.6 * z),
+                    Align2::CENTER_CENTER,
+                    note,
+                    FontId::proportional(NOTE * z),
+                    MUTED,
+                );
+            }
+            None => drop(painter.text(r.center(), Align2::CENTER_CENTER, &n.label, FontId::proportional(FONT * z), TEXT)),
+        }
     }
 }
 
@@ -240,7 +283,7 @@ fn rgb(c: Color32) -> String {
 
 /// The scene as a standalone dark SVG, in graph units.
 pub fn svg(ctx: &egui::Context, scene: &Scene) -> String {
-    let measure = |s: &str| ctx.fonts_mut(|f| f.layout_no_wrap(s.to_string(), FontId::proportional(FONT), TEXT).size());
+    let measure = |s: &str, size: f32| ctx.fonts_mut(|f| f.layout_no_wrap(s.to_string(), FontId::proportional(size), TEXT).size());
     let g = geometry(scene, &measure, &|p| p, 1.0);
     let all = g
         .nodes
@@ -297,8 +340,19 @@ pub fn svg(ctx: &egui::Context, scene: &Scene) -> String {
             d.join(" "),
             rgb(MUTED)
         );
+        let mid = pts[0] + (pts[pts.len() - 1] - pts[0]) / 2.0;
+        if let Some(note) = &e.note {
+            let below = if e.label.is_some() { 14.0 } else { 4.0 };
+            let _ = writeln!(
+                out,
+                "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"10\" fill=\"{}\">{}</text>",
+                mid.x,
+                mid.y + below,
+                rgb(MUTED),
+                esc(note)
+            );
+        }
         if let Some(l) = &e.label {
-            let mid = pts[0] + (pts[pts.len() - 1] - pts[0]) / 2.0;
             let _ = writeln!(
                 out,
                 "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"11\" fill=\"{}\">{}</text>",
@@ -347,14 +401,32 @@ pub fn svg(ctx: &egui::Context, scene: &Scene) -> String {
                 n.fill
             ),
         };
+        // Label, and the note under it, as the canvas draws them.
+        let (label_y, note_y) = match n.note {
+            Some(_) => (
+                r.center().y + 4.0 - (NOTE + NOTE_GAP) * 0.6,
+                r.center().y + 3.5 + (FONT + NOTE_GAP) * 0.6,
+            ),
+            None => (r.center().y + 4.0, 0.0),
+        };
         let _ = writeln!(
             out,
             "{shape}\n<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"12\" fill=\"{}\">{}</text>",
             r.center().x,
-            r.center().y + 4.0,
+            label_y,
             rgb(TEXT),
             esc(&n.label)
         );
+        if let Some(note) = &n.note {
+            let _ = writeln!(
+                out,
+                "<text x=\"{:.1}\" y=\"{:.1}\" text-anchor=\"middle\" font-size=\"10\" fill=\"{}\">{}</text>",
+                r.center().x,
+                note_y,
+                rgb(MUTED),
+                esc(note)
+            );
+        }
     }
     out.push_str("</svg>\n");
     out

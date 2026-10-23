@@ -257,7 +257,7 @@ impl App {
                 spec.collapse = v.collapse.clone();
             }
             self.items = tree(&self.full, &spec);
-            self.scene = scene::tree_scene(&self.items, self.marks);
+            self.scene = scene::tree_scene(&self.items, &self.full, self.marks);
             return;
         }
         self.items.clear();
@@ -1186,7 +1186,8 @@ impl App {
             }
         }
         let ctx = ui.ctx().clone();
-        let measure = |s: &str| ctx.fonts_mut(|f| f.layout_no_wrap(s.to_string(), egui::FontId::proportional(draw::FONT), TEXT).size());
+        let measure =
+            |s: &str, size: f32| ctx.fonts_mut(|f| f.layout_no_wrap(s.to_string(), egui::FontId::proportional(size), TEXT).size());
         let to = |p: Pos2| canvas.min + view.pan + p.to_vec2() * view.zoom;
         self.geo = draw::geometry(&scene, &measure, &to, view.zoom);
         let painter = painter.with_clip_rect(canvas);

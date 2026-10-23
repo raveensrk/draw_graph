@@ -20,6 +20,8 @@ below). The reference document is
 | Format | Recfile only. JSON only as an export. YAML dropped |
 | Input | Keyboard first, vim keys; mouse optional |
 | Saving | Every accepted edit is written at once (temp file, then rename). Undo and redo step through the texts the app wrote |
+| Notes | A node's or edge's `Note` shows on the canvas (and in the SVG): its first line under the label, cut to 40 characters with an ellipsis. The full note is in the side panel |
+| Links in the panel | A node's panel has an Incoming pane (what leads here) and an Outgoing pane (what it leads to); an edge's has a From pane and a To pane, each end with its tags and note. A name goes to that node; `link` opens the edge |
 | Edit form | A side panel, built from the schema: an enum or small range is a dropdown, `Note` a text area. A repeated field (`Collapse`) is shown, not edited, since one input would flatten it |
 | Export | SVG |
 | Icon | [icon.svg](app/icons/icon.svg), dark: a graph branching left to right like the tree view, the root in the canvas's gold focus ring, nodes in the level colours, one dashed OR edge. Every file in `app/icons/` is rendered from it |
