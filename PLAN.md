@@ -4,7 +4,8 @@ A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
-Status: planned. No code yet. The reference document is
+Status: step 1 of the build order done (2026-10-23): the recfile library
+and `draw_graph check`. No app window yet. The reference document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
@@ -18,8 +19,10 @@ Status: planned. No code yet. The reference document is
 | Format | Recfile only. JSON only between the Rust side and the web view, and as an export. YAML dropped |
 | Input | Keyboard first, vim keys; mouse optional |
 | Export | SVG |
-| Name | `draw_graph` for the app, the command and the repo (chosen 2026-10-23). A verb phrase as a folder name breaks agent1 naming.md's noun rule; chosen anyway, for one name everywhere. Free on crates.io, PyPI and npm |
+| Name | `draw_graph` for the app, the command and the repo (chosen 2026-10-23), one name everywhere. Free on crates.io, PyPI and npm |
 | Repo | Public, on GitHub |
+| Schema checks | Done by draw_graph itself, not by calling `recfix`: recutils is hard to get on Windows. A descriptor field or `%type` it cannot check is reported, never skipped |
+| Edges onto groups | Allowed: `From` and `To` may name a node or a group; the arrow meets the group's box. draw_graph checks both ends itself |
 | Install | Release builds from CI for each tag: `.dmg`, `.msi`, `.AppImage` |
 
 ### Why recfile
@@ -29,13 +32,14 @@ Compared on the example graph (581 lines rec, 526 YAML, 951 JSON):
 - Comments survive, and the app saves without losing them.
 - One `Field: value` per line: nothing to escape, no indentation that
   carries meaning, no value silently turned into a boolean or number.
-- `recfix` checks `%type`, `%mandatory` and `%allowed` for free.
+- `%type`, `%mandatory` and `%allowed` describe the fields in the file
+  itself, and `recfix` can check them on a machine that has recutils.
 - A changed record changes only its own lines, so git diffs and merges
   stay small.
 
-Costs, accepted: a parser of our own, our own check that edge endpoints exist
-(`recfix` does not check `%type: X rec Node`), and typing values from
-`%type`.
+Costs, accepted: a parser of our own, our own schema check (built in step
+1; `recfix` does not even check that `%type: X rec Node` points at a real
+record), and typing values from `%type`.
 
 ## File format
 
@@ -46,7 +50,7 @@ does.
 |---|---|---|
 | `Group` | A box on the canvas. `Parent` nests it in another box; `Collapsed` folds it to one node | `Name` |
 | `Node` | One node. Its fields come from the schema | `Name` |
-| `Edge` | One arrow: `From`, `To`, `Kind`, optional `Label`, `Any`, `Note` | none |
+| `Edge` | One arrow: `From`, `To` (each a node or a group), `Kind`, optional `Label`, `Any`, `Note` | none |
 | `View` | A saved way of looking at the graph: layout, direction, root, folds | `Name` |
 
 - **Node fields** come from the schema: `%type`, `%allowed` and `%mandatory`
@@ -68,7 +72,7 @@ does.
 %graph: pos Pos
 %graph: group Group
 %graph: filter Tier
-%graph: acyclic Kind=requires
+%graph: acyclic when Kind=requires
 %graph: rise Level Tier when Kind=requires
 %graph: no_implied when Kind=requires
 ```
@@ -80,12 +84,20 @@ shown, the same gate `dev_tools.py` has today.
 
 | Rule | Meaning |
 |---|---|
-| Schema | `recfix --check` |
-| Endpoints | `From` and `To` name a real record |
+| Schema | `%type` (int, real, bool, line, range, regexp, enum, rec, `%typedef`), `%key`, `%mandatory`, `%allowed`, `%prohibit` |
+| Foreign keys | A `rec Type` field names a real record of that type |
+| Endpoints | `From` and `To` name a real node or group; `Group` and `Parent` name real groups, and parents never loop |
+| OR groups | An `Any` value joins two or more edges, all into one node |
+| Repeats | The same edge twice |
+| Views | `Root` and `Collapse` name real nodes or groups; `Edges` names real edge kinds |
 | Duplicates | Names equal ignoring case and spaces |
 | `acyclic` | No loop among the matching edges |
 | `rise F...` | An edge never points from a higher value to a lower one of each field (an ordered enum counts in its listed order). A node without the field is skipped |
-| `no_implied` | No edge already implied through another path; no OR line met by an AND edge |
+| `no_implied` | No edge already implied through another path; no OR choice met by an AND edge. Skipped while a loop is reported, since inside a loop every edge looks implied |
+
+A rule takes `when Field=value` to apply only to some edges. Problems print
+as `FILE:LINE: SUBJECT: PROBLEM - fix: HOW`, the shape vim's `:cfile`
+reads.
 
 ## Views
 
@@ -146,7 +158,7 @@ calls it once `dev_tools.py` is retired.
 
 ## Build order
 
-1. Recfile parse and save, rules, `draw_graph check`.
+1. Recfile parse and save, rules, `draw_graph check`. Done 2026-10-23.
 2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form.
 3. Tree view: root, follow, fold, `Repeat`.
 4. Nested groups and SVG export.
@@ -158,9 +170,6 @@ calls it once `dev_tools.py` is retired.
 
 - **Code signing.** Without an Apple Developer ID (99 USD a year) macOS
   warns on the first launch of the `.dmg`; Windows SmartScreen warns too.
-- **Edges onto groups.** The example has `To: Save flow`, a group, while the
-  schema says `%type: From,To rec Node`. Decide whether an edge may end on a
-  box.
 - **Views in the data file.** Folding a node is a git change. A side file is
   the alternative.
 

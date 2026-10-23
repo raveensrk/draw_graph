@@ -1,0 +1,10 @@
+[package]
+name = "draw_graph"
+version = "0.1.0"
+edition = "2024"
+description = "Draw and edit a recfile as a graph"
+license = "MIT"
+repository = "https://github.com/raveensrk/draw_graph"
+
+[dependencies]
+regex = "1"

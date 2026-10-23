@@ -305,7 +305,7 @@ Group: Ideas
 Pos: -400 900
 
 %rec: Edge
-%type: From,To rec Node
+%type: From,To line
 %type: Kind enum requires flow branch relates
 %type: Any line
 %mandatory: From To Kind
@@ -314,7 +314,7 @@ Pos: -400 900
 %graph: to To
 %graph: any Any
 %graph: style Kind requires=solid flow=solid branch=solid relates=dotted
-%graph: acyclic Kind=requires
+%graph: acyclic when Kind=requires
 %graph: rise Level Tier when Kind=requires
 %graph: no_implied when Kind=requires
 

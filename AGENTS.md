@@ -16,4 +16,15 @@ draw_graph: a Tauri desktop app that edits a recfile as a graph.
 |---|---|
 | `PLAN.md` | Spec, decisions, build order |
 | `example/` | Sample recfiles |
-| `doc/` | Architecture and format docs, once there is code |
+| `src/rec.rs` | Recfile text: parse, edit, write back unchanged records byte for byte |
+| `src/schema.rs` | What `%rec` descriptors say: types, keys, mandatory, allowed |
+| `src/graph.rs` | `%graph` settings and the graph rules |
+| `src/check.rs` | Runs every check; the gate for every edit |
+| `src/main.rs` | The `draw_graph` command; one `VERBS` table drives all help |
+| `tests/check.rs` | One test per problem: break the example once, expect that problem |
+
+## Commands
+
+- Test: `timeout 180 cargo test` (about 5 s once built).
+- Lint: `timeout 120 cargo clippy --all-targets` and `cargo fmt --check`; both clean.
+- Usage: `draw_graph --help`; the help is the only usage doc.
