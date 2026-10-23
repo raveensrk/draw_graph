@@ -1,11 +1,11 @@
-# graph_canvas plan
+# draw_graph plan
 
 A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
 Status: planned. No code yet. The reference document is
-[graph_canvas_example.rec](example/graph_canvas_example.rec).
+[draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
 
@@ -18,6 +18,7 @@ Status: planned. No code yet. The reference document is
 | Format | Recfile only. JSON only between the Rust side and the web view, and as an export. YAML dropped |
 | Input | Keyboard first, vim keys; mouse optional |
 | Export | SVG |
+| Name | `draw_graph` for the app, the command and the repo (chosen 2026-10-23). A verb phrase as a folder name breaks agent1 naming.md's noun rule; chosen anyway, for one name everywhere. Free on crates.io, PyPI and npm |
 | Repo | Public, on GitHub |
 | Install | Release builds from CI for each tag: `.dmg`, `.msi`, `.AppImage` |
 
@@ -56,7 +57,7 @@ does.
 - **Edge kinds** in the example: `requires` (learning path), `flow`
   (flowchart, may loop), `branch` (mind map), `relates` (concept map,
   labelled, dotted).
-- **`%graph:` lines** in a record descriptor are graph_canvas settings.
+- **`%graph:` lines** in a record descriptor are draw_graph settings.
   `recfix` ignores them (tested). They name the special fields, the styles
   and the rules:
 
@@ -138,14 +139,14 @@ Vim keys on the canvas. First draft:
 
 ## Command line
 
-The same binary runs headless: `graph_canvas check FILE.rec` prints
+The same binary runs headless: `draw_graph check FILE.rec` prints
 problems and exits 1 on any. agent1's
 [dev_tools_rec.py](https://github.com/raveensrk/agent1/blob/main/harness/checks/dev_tools_rec.py)
 calls it once `dev_tools.py` is retired.
 
 ## Build order
 
-1. Recfile parse and save, rules, `graph_canvas check`.
+1. Recfile parse and save, rules, `draw_graph check`.
 2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form.
 3. Tree view: root, follow, fold, `Repeat`.
 4. Nested groups and SVG export.

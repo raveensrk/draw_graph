@@ -1,4 +1,4 @@
-# graph_canvas example: the plan for graph_canvas itself, drawn as a graph.
+# draw_graph example: the plan for draw_graph itself, drawn as a graph.
 #
 # One file mixes the four kinds of graph the app is for:
 #   learning path   tools to learn first          Edge Kind requires
@@ -12,7 +12,7 @@
 #   Edge    one arrow; From and To name nodes
 #   View    a saved way of looking at the graph (layout, root, folds)
 #
-# %graph lines are graph_canvas settings. recfix ignores them; the app
+# %graph lines are draw_graph settings. recfix ignores them; the app
 # reads them as rules and styles. A rule is checked on every edit, and an
 # edit that breaks one is refused.
 
@@ -36,7 +36,7 @@ Name: Frameworks
 Parent: Learning
 
 Name: App
-Label: graph_canvas app
+Label: draw_graph app
 Color: #3a2f5f
 
 Name: Backend
@@ -183,7 +183,7 @@ Group: Backend
 Pos: 1200 -80
 
 Name: CLI check
-Label: graph_canvas check FILE
+Label: draw_graph check FILE
 Kind: task
 Status: todo
 Group: Backend
@@ -265,7 +265,7 @@ Pos: 800 500
 
 # Ideas: a mind map around the app.
 
-Name: graph_canvas
+Name: draw_graph
 Kind: idea
 Group: Ideas
 Color: #c0a030
@@ -456,27 +456,27 @@ Kind: flow
 
 # Mind map: branches out from the centre.
 
-From: graph_canvas
+From: draw_graph
 To: Learning paths
 Kind: branch
 
-From: graph_canvas
+From: draw_graph
 To: Mind maps
 Kind: branch
 
-From: graph_canvas
+From: draw_graph
 To: Flowcharts
 Kind: branch
 
-From: graph_canvas
+From: draw_graph
 To: Concept maps
 Kind: branch
 
-From: graph_canvas
+From: draw_graph
 To: Live reload
 Kind: branch
 
-From: graph_canvas
+From: draw_graph
 To: Small diffs
 Kind: branch
 
@@ -571,7 +571,7 @@ Filter: Group = 'Save flow'
 
 Name: Mind map
 Layout: radial
-Root: graph_canvas
+Root: draw_graph
 Edges: branch relates
 Collapse: Live reload
 Collapse: Small diffs
