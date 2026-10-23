@@ -9,11 +9,13 @@
 use std::collections::HashMap;
 use std::fmt;
 
+use serde::{Deserialize, Serialize};
+
 use crate::graph::{self, Settings};
 use crate::rec::Doc;
 use crate::schema::{Schema, Type};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Problem {
     /// 1-based line of the record or descriptor field; 0 when unknown.
     pub line: usize,

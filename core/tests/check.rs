@@ -1,10 +1,10 @@
 //! Each test breaks the example document in one way and expects the one
 //! problem that names it. The example itself must be clean.
 
-use draw_graph::check::check_text;
-use draw_graph::rec::Doc;
+use draw_graph_core::check::check_text;
+use draw_graph_core::rec::Doc;
 
-const EXAMPLE: &str = include_str!("../example/draw_graph_example.rec");
+const EXAMPLE: &str = include_str!("../../example/draw_graph_example.rec");
 
 /// The example with `from` replaced by `to`, exactly once.
 fn with(from: &str, to: &str) -> String {

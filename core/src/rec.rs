@@ -255,6 +255,31 @@ impl Doc {
     /// Set a field to one value: replace the first, drop any repeats, or
     /// append it when the record has none.
     pub fn set(&mut self, n: usize, name: &str, value: &str) -> Option<()> {
+        self.set_ordered(n, name, value, &[])
+    }
+
+    /// Like set, but a new field goes where `order` (the %allowed list)
+    /// puts it: before the first field that order lists later.
+    pub fn set_ordered(&mut self, n: usize, name: &str, value: &str, order: &[String]) -> Option<()> {
+        let rank = |f: &str| order.iter().position(|o| o == f);
+        let r = self.record_mut(n)?;
+        let new = !r.fields().any(|f| f.name == name);
+        if new && let Some(mine) = rank(name) {
+            let at = r
+                .items
+                .iter()
+                .position(|item| matches!(item, Item::Field(f) if rank(&f.name).is_some_and(|o| o > mine)));
+            if let Some(at) = at {
+                let field = Field {
+                    name: name.to_string(),
+                    value: value.to_string(),
+                    line: 0,
+                };
+                r.items.insert(at, Item::Field(field));
+                r.dirty = true;
+                return Some(());
+            }
+        }
         let r = self.record_mut(n)?;
         let mut seen = false;
         r.items.retain_mut(|item| {

@@ -4,8 +4,9 @@ A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
-Status: step 1 of the build order done (2026-10-23): the recfile library
-and `draw_graph check`. No app window yet. The reference document is
+Status: steps 1 and 2 of the build order done (2026-10-23): the recfile
+library, `draw_graph check`, and the window with canvas, vim keys, side
+panel and live reload. The reference document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
@@ -13,11 +14,14 @@ and `draw_graph check`. No app window yet. The reference document is
 | Area | Decision |
 |---|---|
 | Platforms | macOS, Linux and Windows; fully offline, no account, no server |
-| Stack | [Tauri](https://tauri.app): Rust for files, parsing and rules; a web view for the UI |
-| Drawing | [Cytoscape.js](https://js.cytoscape.org); compound nodes give nested boxes |
+| Stack | [Tauri](https://tauri.app) 2: Rust for files, parsing and rules; a web view for the UI |
+| UI | [Leptos](https://leptos.dev) 0.8, compiled to wasm with [Trunk](https://trunkrs.dev). The UI runs the same core library as the backend, so forms, colours and rules all come from the file's schema |
+| Drawing | [Cytoscape.js](https://js.cytoscape.org) 3.30.2, called from Leptos through a thin `canvas.js`; compound nodes give nested boxes. Vendored in `ui/vendor/` with ELK.js 0.9.3 and cytoscape-elk 2.2.0, so builds work offline |
 | Layout | [ELK.js](https://github.com/kieler/elkjs) layered, tree and radial, plus force; drag to adjust, positions saved in the file |
 | Format | Recfile only. JSON only between the Rust side and the web view, and as an export. YAML dropped |
 | Input | Keyboard first, vim keys; mouse optional |
+| Saving | Every accepted edit is written at once (temp file, then rename). Undo and redo step through the texts the app wrote |
+| Edit form | A side panel, built from the schema: an enum or small range is a dropdown, `Note` a text area. A repeated field (`Collapse`) is shown, not edited, since one input would flatten it |
 | Export | SVG |
 | Name | `draw_graph` for the app, the command and the repo (chosen 2026-10-23), one name everywhere. Free on crates.io, PyPI and npm |
 | Repo | Public, on GitHub |
@@ -129,17 +133,13 @@ mapping. Dark theme by default.
 
 ## Keys
 
-Vim keys on the canvas. First draft:
+Vim keys on the canvas. The help page (`?`) lists them from the same table
+the code uses (`KEYS` in `ui/src/main.rs`). Shipped in step 2:
 
-| Key | Does |
-|---|---|
-| `h` `j` `k` `l` | Move to the nearest node in that direction |
-| `o`, `O` | Add a child, add a parent |
-| `dd` | Delete the node and its edges |
-| `u`, `Ctrl-r` | Undo, redo |
-| `za` | Fold or unfold |
-| `/`, `n`, `N` | Search, next, previous |
-| `?` | Help page |
+`h j k l` move, `e` step through edges, `Enter`/`i` edit in the panel,
+`Esc` back, `o`/`O` add after/before, `a` add alone, `c` connect, `dd`
+delete, `u`/`Ctrl-r` undo/redo, `/` `n` `N` search, `L` next layout, `s`
+save positions, `f` fit, `?` help. `za` (fold) comes with the tree view.
 
 ## Saving and live reload
 
@@ -159,7 +159,8 @@ calls it once `dev_tools.py` is retired.
 ## Build order
 
 1. Recfile parse and save, rules, `draw_graph check`. Done 2026-10-23.
-2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form.
+2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form,
+   live reload. Done 2026-10-23.
 3. Tree view: root, follow, fold, `Repeat`.
 4. Nested groups and SVG export.
 5. Convert agent1's `dev_tools.rec` to Edge records; retire `dev_tools.py`
@@ -170,6 +171,10 @@ calls it once `dev_tools.py` is retired.
 
 - **Code signing.** Without an Apple Developer ID (99 USD a year) macOS
   warns on the first launch of the `.dmg`; Windows SmartScreen warns too.
+- **Tree layout and boxes.** ELK's `mrtree` lets group boxes overlap. The
+  real tree view (step 3) needs its own layout.
+- **Trunk pinned to 0.21.** Trunk 0.22 needs rustc 1.96.1; this machine has
+  1.94.0. Move up when Rust is updated.
 - **Views in the data file.** Folding a node is a git change. A side file is
   the alternative.
 

@@ -1,8 +1,11 @@
-//! The draw_graph command. Today it checks files; the app comes next.
+//! The draw_graph command: open a recfile in the window, or check it.
 
+mod gui;
+
+use std::path::PathBuf;
 use std::process::ExitCode;
 
-use draw_graph::check::check_text;
+use draw_graph_core::check::check_text;
 
 /// Exit codes: no problems, problems found, the call itself was wrong.
 const OK: u8 = 0;
@@ -20,6 +23,18 @@ struct Verb {
 
 /// One table drives the main help and every verb's help.
 const VERBS: &[Verb] = &[
+    Verb {
+        name: "open",
+        args: "FILE.rec",
+        summary: "open the file in the window; `draw_graph FILE.rec` does the same",
+        detail: "Every accepted edit is written to the file at once; an edit that adds
+a problem is refused and the file is left as it was. Changes made by vim,
+git or an agent show up in the window as soon as they land. Press ? in
+the window for the keys.
+
+Logs: one JSON line per event (open, apply, undo, redo, reload) on stderr.",
+        example: "draw_graph example/draw_graph_example.rec",
+    },
     Verb {
         name: "check",
         args: "FILE.rec...",
@@ -43,8 +58,7 @@ Output: FILE:LINE: SUBJECT: PROBLEM - fix: HOW, sorted by line. vim's
 ];
 
 fn usage() -> String {
-    let mut out =
-        String::from("usage: draw_graph VERB [ARGS]\n\nDraw and edit a recfile as a graph. The app is not built yet; check is.\n\n");
+    let mut out = String::from("usage: draw_graph FILE.rec | VERB [ARGS]\n\nDraw and edit a recfile as a graph.\n\n");
     for v in VERBS {
         out.push_str(&format!("  {:<6} {:<12} {}\n", v.name, v.args, v.summary));
     }
@@ -55,9 +69,11 @@ fn usage() -> String {
 fn long() -> String {
     format!(
         "{}
-Files:     reads each FILE.rec; writes nothing.
+Files:     open reads and writes FILE.rec (through a .FILE.rec.draw_graph.tmp next
+           to it); check reads each FILE.rec and writes nothing.
 Env:       none.
-Exit:      {OK} no problems, {PROBLEMS} problems found, {USAGE} bad call or unreadable file.
+Exit:      {OK} no problems (check) or window closed (open), {PROBLEMS} problems
+           found, {USAGE} bad call, unreadable file or the window failed.
 Spec:      PLAN.md in the draw_graph repo.
 
 Run `draw_graph help VERB` for a verb's detail.
@@ -112,8 +128,19 @@ fn main() -> ExitCode {
             ExitCode::from(USAGE)
         }
         ["check", files @ ..] => check(files),
-        [other, ..] if other.ends_with(".rec") => {
-            eprintln!("draw_graph: the app is not built yet - fix: draw_graph check {other}");
+        ["open", rest @ ..] if wants_help(rest) => {
+            print!("{}", verb_help(find("open").expect("open is in VERBS")));
+            ExitCode::from(OK)
+        }
+        ["open", file] | [file] if file.ends_with(".rec") => match gui::run(PathBuf::from(file)) {
+            Ok(()) => ExitCode::from(OK),
+            Err(e) => {
+                eprintln!("draw_graph: {e}");
+                ExitCode::from(USAGE)
+            }
+        },
+        ["open", ..] => {
+            eprintln!("draw_graph: open takes one FILE.rec - fix: draw_graph open FILE.rec");
             ExitCode::from(USAGE)
         }
         [other, ..] => {

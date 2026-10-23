@@ -16,15 +16,16 @@ draw_graph: a Tauri desktop app that edits a recfile as a graph.
 |---|---|
 | `PLAN.md` | Spec, decisions, build order |
 | `example/` | Sample recfiles |
-| `src/rec.rs` | Recfile text: parse, edit, write back unchanged records byte for byte |
-| `src/schema.rs` | What `%rec` descriptors say: types, keys, mandatory, allowed |
-| `src/graph.rs` | `%graph` settings and the graph rules |
-| `src/check.rs` | Runs every check; the gate for every edit |
-| `src/main.rs` | The `draw_graph` command; one `VERBS` table drives all help |
-| `tests/check.rs` | One test per problem: break the example once, expect that problem |
+| `core/` | The shared library (also built for wasm): `rec.rs` text, `schema.rs` descriptors, `graph.rs` %graph rules, `check.rs` every check, `edit.rs` edits behind the check, `model.rs` what the UI draws |
+| `core/tests/check.rs` | One test per problem: break the example once, expect that problem |
+| `app/` | The `draw_graph` binary: the command line (`main.rs`, one `VERBS` table drives all help) and the Tauri window (`gui.rs`: commands, watcher, undo) |
+| `ui/` | The Leptos web view (`src/main.rs`), `canvas.js` (Cytoscape glue), vendored JS in `vendor/` |
 
 ## Commands
 
-- Test: `timeout 180 cargo test` (about 5 s once built).
-- Lint: `timeout 120 cargo clippy --all-targets` and `cargo fmt --check`; both clean.
+- Test: `timeout 300 cargo test -p draw_graph_core -p draw_graph` (about 5 s once built).
+- Lint: `cargo clippy -p draw_graph_core -p draw_graph --all-targets`, `cargo clippy -p draw_graph_ui --target wasm32-unknown-unknown`, `cargo fmt --all --check`; all clean.
+- Build the app with the web view inside: `cd app && cargo tauri build --debug --no-bundle`, then `target/debug/draw_graph FILE.rec`. A plain `cargo build` loads the page from `trunk serve` on 127.0.0.1:1420 instead (`cargo tauri dev`).
+- Debug the window: its stderr is one JSON line per event (`open`, `apply`, `undo`, `reload`, and from the web view `render`, `layout`, `ui_error`). Test on a copy of a file, never on the example in place.
 - Usage: `draw_graph --help`; the help is the only usage doc.
+- Needs: `rustup target add wasm32-unknown-unknown`, `cargo install --locked trunk --version '~0.21'`, `cargo install --locked tauri-cli --version '^2'`.
