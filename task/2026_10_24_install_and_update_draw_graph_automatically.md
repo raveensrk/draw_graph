@@ -24,3 +24,8 @@ Installing today is by hand: `cd app && cargo tauri build --no-bundle && cp ../t
 
 - On a clean Mac, one command gives a working `draw_graph` command and a `draw_graph.app` with its icon.
 - Re-running it after a new release updates both.
+
+
+## 2026-10-24
+
+Half done: `script/bundle_macos.sh --install` builds and installs both the .app (~/Applications) and the command (~/.local/bin) in one command. Still open: updating from a release without a Rust toolchain (Homebrew tap or a self-updater).

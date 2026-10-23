@@ -17,3 +17,8 @@ Dropped on 2026-10-24 by choice. The comment in `.github/workflows/release.yml` 
 ## Acceptance
 
 - A tag builds `.AppImage`/`.deb` on ubuntu-22.04 and `.msi`/`.exe` on windows-latest.
+
+
+## 2026-10-24
+
+With Tauri gone, each platform needs its own bundle step next to `script/bundle_macos.sh` (an AppImage or .deb on Linux, an .msi on Windows); eframe itself builds on both.

@@ -1,6 +1,6 @@
 ---
 id: "q92dgrd1j6"
-title: "Add automated tests for the web view"
+title: "Add automated tests for the window"
 state: "todo"
 due: ""
 priority: ""
@@ -21,3 +21,8 @@ Only core has tests (59). Keys, panels and the canvas were checked by hand in th
 ## Acceptance
 
 - CI runs UI tests for moving, adding, deleting, folding and tags.
+
+
+## 2026-10-24
+
+UI tests are easier now: egui has egui_kittest, which drives a window in tests (keys, clicks, snapshots) with no browser.

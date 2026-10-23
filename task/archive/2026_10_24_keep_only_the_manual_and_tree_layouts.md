@@ -1,7 +1,7 @@
 ---
 id: "dj330bjzpz"
 title: "Keep only the manual and tree layouts"
-state: "todo"
+state: "done"
 due: ""
 priority: ""
 tag: ["feature", "draw_graph"]
@@ -9,7 +9,7 @@ repeat: ""
 effort: ""
 postpone: 0
 created: "2026-10-24"
-closed: ""
+closed: "2026-10-24T01:42"
 ---
 
 Keep two graph layouts, `manual` and `tree`; remove `layered`, `radial` and `force`. Asked for on 2026-10-24. The tree view (`t`, `T`) is separate and stays.
@@ -27,3 +27,7 @@ Keep two graph layouts, `manual` and `tree`; remove `layered`, `radial` and `for
 
 - `L` steps only between manual and tree; a file without positions opens in tree.
 - `draw_graph check example/draw_graph_example.rec` reports 0 problems; core tests pass.
+
+## Log
+
+- done 2026-10-24 01:42: egui app (ee0958f): only manual and tree layouts exist; L toggles them

@@ -23,3 +23,8 @@ The icon exists (`app/icons/icon.svg`, every size rendered from it) but does not
 ## Acceptance
 
 - Running draw_graph shows its own icon in the Dock and in Cmd-Tab.
+
+
+## 2026-10-24
+
+`draw_graph.app` (from `script/bundle_macos.sh`, installed in ~/Applications) carries the icon in the Dock and Cmd-Tab. The bare `draw_graph` command started from a terminal still shows a generic icon: macOS gives one to any program outside a bundle.
