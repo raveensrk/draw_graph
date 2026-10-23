@@ -32,6 +32,10 @@ const FOLLOW_ZOOM: f32 = 1.3;
 const GLIDE: f32 = 0.25;
 const ZOOM_RANGE: (f32, f32) = (0.05, 4.0);
 
+/// The connect handle: a dot this far right of a node, this big, in px.
+const HANDLE_OFF: f32 = 9.0;
+const HANDLE: f32 = 5.0;
+
 /// How close a click must land to an edge's line to pick it, in px.
 const EDGE_PICK: f32 = 6.0;
 
@@ -54,6 +58,10 @@ pub const KEYS: &[(&str, &str)] = &[
     ("c", "connect: an edge from the selection to another node"),
     ("G", "put the selected node in a new group inside its current one"),
     ("click an edge", "select it; its ends light up"),
+    (
+        "drag the dot",
+        "connect: drag from the dot right of a node onto another (or Option + drag a node)",
+    ),
     ("dd", "delete the selected node (and its edges), edge or box (not its members)"),
     ("u, Ctrl-r", "undo, redo"),
     ("/, n, N", "search names, labels, tags and boxes (smartcase); next, previous"),
@@ -141,6 +149,8 @@ pub struct App {
     fitted: bool,
     /// A node or box being dragged, and how far, in graph units.
     drag: Option<(String, Vec2)>,
+    /// A connect drag in progress: the node the new edge starts from.
+    link: Option<String>,
     /// Edits the panel asked for this frame.
     pub outbox: Vec<(Edit, Option<String>)>,
     pub focus_panel: bool,
@@ -231,6 +241,7 @@ impl App {
             refused: Vec::new(),
             fitted: false,
             drag: None,
+            link: None,
             outbox: Vec::new(),
             focus_panel: false,
             focus_tag: false,
@@ -1141,7 +1152,20 @@ impl App {
         }
 
         // Drag a node or box in the manual layout; drag the background to pan.
+        // Connect: a drag from a node's handle, or Option + drag from a node,
+        // draws a new edge to wherever it is dropped.
+        let alt = ui.input(|i| i.modifiers.alt);
         if resp.drag_started()
+            && let Some(p) = resp.interact_pointer_pos()
+            && let Some(src) = self
+                .geo
+                .nodes
+                .iter()
+                .find(|(_, r)| handle_at(**r).distance(p) <= HANDLE * 2.0 || (alt && r.contains(p)))
+                .map(|(id, _)| id.clone())
+        {
+            self.link = Some(src);
+        } else if resp.drag_started()
             && let Some(p) = resp.interact_pointer_pos()
         {
             let on = self
@@ -1150,13 +1174,25 @@ impl App {
                 .filter(|id| self.tree.is_none() && self.layout == Layout::Manual && (id.starts_with("n:") || id.starts_with("g:")));
             self.drag = on.map(|id| (id, Vec2::ZERO));
         }
-        if resp.dragged() {
+        if resp.dragged() && self.link.is_none() {
             let d = resp.drag_delta();
             match &mut self.drag {
                 Some((_, moved)) => *moved += d / self.view.zoom,
                 None => self.view.pan += d,
             }
             self.target = None;
+        }
+        if resp.drag_stopped()
+            && let Some(src) = self.link.take()
+        {
+            let to = resp.interact_pointer_pos().and_then(|p| self.geo.hit(p));
+            match (self.name_of(&src), to.as_deref().and_then(|t| self.name_of(t))) {
+                (Some(a), Some(b)) if a != b => {
+                    let e = self.new_edge(&a, &b, &a);
+                    self.send(e, Some(format!("n:{a}")));
+                }
+                _ => self.msg = "drop the line on another node to connect".into(),
+            }
         }
         if resp.drag_stopped()
             && let Some((id, moved)) = self.drag.take()
@@ -1255,6 +1291,43 @@ impl App {
                 hits: &self.hits,
             },
         );
+
+        // The connect handle on the hovered node, and the line being drawn.
+        let pointer = ui.input(|i| i.pointer.hover_pos());
+        if self.mode == Mode::Normal
+            && let Some(p) = pointer.filter(|p| canvas.contains(*p))
+        {
+            let hovered = self
+                .geo
+                .nodes
+                .iter()
+                .find(|(_, r)| r.contains(p) || handle_at(**r).distance(p) <= HANDLE * 2.0);
+            if let Some((_, r)) = hovered.filter(|_| self.link.is_none()) {
+                painter.circle_filled(handle_at(*r), HANDLE, draw::ACCENT);
+            }
+            if let Some(from) = self.link.as_ref().and_then(|s| self.geo.nodes.get(s)).copied() {
+                let start = handle_at(from);
+                painter.line_segment([start, p], egui::Stroke::new(2.0, draw::ACCENT));
+                painter.circle_filled(start, HANDLE, draw::ACCENT);
+                if let Some(r) = self.geo.hit(p).and_then(|id| self.geo.rect(&id)) {
+                    painter.rect_stroke(
+                        r,
+                        7.0 * self.view.zoom,
+                        egui::Stroke::new(3.0, draw::ACCENT),
+                        egui::StrokeKind::Outside,
+                    );
+                }
+                ui.ctx().request_repaint();
+            }
+        }
+    }
+
+    /// The record an id stands for: `n:Bash`, `g:Browser` or a tree item.
+    fn name_of(&self, id: &str) -> Option<String> {
+        if let Some(n) = id.strip_prefix("n:").or_else(|| id.strip_prefix("g:")) {
+            return Some(n.to_string());
+        }
+        self.items.iter().find(|i| i.id == id).map(|i| i.name.clone())
     }
 
     /// The nodes a drag moves: the node, or every node inside a box.
@@ -1369,6 +1442,11 @@ impl App {
             self.mode = Mode::Normal;
         }
     }
+}
+
+/// Where a node's connect handle sits: just right of it.
+fn handle_at(r: Rect) -> Pos2 {
+    r.right_center() + Vec2::new(HANDLE_OFF, 0.0)
 }
 
 impl eframe::App for App {
