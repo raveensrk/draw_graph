@@ -4,21 +4,20 @@ A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
-Status: steps 1 to 4 of the build order done (2026-10-23): the recfile
-library, `draw_graph check`, the window with canvas, vim keys, side panel
-and live reload, the folding tree view, folding group boxes and SVG export. The reference document is
+Status: all six steps of the build order done; on 2026-10-24 the window
+moved from Tauri + Leptos + Cytoscape.js to egui (see "The egui switch"
+below). The reference document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
 
 | Area | Decision |
 |---|---|
-| Platforms | macOS, Linux and Windows; fully offline, no account, no server |
-| Stack | [Tauri](https://tauri.app) 2: Rust for files, parsing and rules; a web view for the UI |
-| UI | [Leptos](https://leptos.dev) 0.8, compiled to wasm with [Trunk](https://trunkrs.dev). The UI runs the same core library as the backend, so forms, colours and rules all come from the file's schema |
-| Drawing | [Cytoscape.js](https://js.cytoscape.org) 3.30.2, called from Leptos through a thin `canvas.js`; compound nodes give nested boxes. Vendored in `ui/vendor/` with ELK.js 0.9.3 and cytoscape-elk 2.2.0, so builds work offline |
-| Layout | [ELK.js](https://github.com/kieler/elkjs) layered, tree and radial, plus force; drag to adjust, positions saved in the file |
-| Format | Recfile only. JSON only between the Rust side and the web view, and as an export. YAML dropped |
+| Platforms | macOS today (the window is egui, which also runs on Linux and Windows); fully offline, no account, no server |
+| Stack | Rust only. [egui](https://github.com/emilk/egui) 0.35 through eframe: one native window, no web view, no JavaScript. The window and `draw_graph check` share the `core` crate, so forms, colours and rules all come from the file's schema |
+| Drawing | Painted by draw_graph each frame (`app/src/draw.rs`) from a plain-data scene (`app/src/scene.rs`); the same geometry writes the SVG export |
+| Layout | Two: `manual` (the saved `Pos`; drag to move, written to the file) and `tree` (a tidy tree of the whole graph from `core/src/tree.rs`; it leaves group boxes out, since one box's members can land far apart). The tree view (`t`, `T`) has its own layout |
+| Format | Recfile only. JSON only as an export. YAML dropped |
 | Input | Keyboard first, vim keys; mouse optional |
 | Saving | Every accepted edit is written at once (temp file, then rename). Undo and redo step through the texts the app wrote |
 | Edit form | A side panel, built from the schema: an enum or small range is a dropdown, `Note` a text area. A repeated field (`Collapse`) is shown, not edited, since one input would flatten it |
@@ -28,7 +27,23 @@ and live reload, the folding tree view, folding group boxes and SVG export. The 
 | Repo | Public, on GitHub |
 | Schema checks | Done by draw_graph itself, not by calling `recfix`: recutils is hard to get on Windows. A descriptor field or `%type` it cannot check is reported, never skipped |
 | Edges onto groups | Allowed: `From` and `To` may name a node or a group; the arrow meets the group's box. draw_graph checks both ends itself |
-| Install | Release builds from CI for each tag: `.dmg`, `.msi`, `.AppImage` |
+| Install | `script/bundle_macos.sh --install` builds `draw_graph.app` into `~/Applications` and the command into `~/.local/bin`. Release builds from CI for each `v*` tag: a `.dmg` for Apple silicon and one for Intel |
+
+### The egui switch
+
+On 2026-10-24 the window moved from Tauri 2 + Leptos (wasm) + Cytoscape.js +
+ELK.js to egui, after a prototype (task "Prototype an egui version of the
+app"). With only the manual and tree layouts kept, ELK was no longer needed,
+and every rule already lived in `core`. What changed:
+
+- One language and one build tool: no wasm target, Trunk or tauri-cli.
+- UI code went from 2,114 lines (Rust, JavaScript, CSS, HTML) to about 2,700
+  lines of Rust that also do the drawing Cytoscape did.
+- The bugs that came from the web layer (keys leaking between the page and
+  Rust, a JavaScript error panicking a Rust task, a Cytoscape redraw error)
+  have no place to happen.
+- Lost for now: Linux and Windows release builds (eframe runs there; the
+  bundle steps are not written).
 
 ### Why recfile
 

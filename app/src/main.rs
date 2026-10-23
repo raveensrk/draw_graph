@@ -1,6 +1,11 @@
 //! The draw_graph command: open a recfile in the window, or check it.
+//! The window is egui: one native window, no web view.
 
-mod gui;
+mod app;
+mod draw;
+mod file;
+mod panel;
+mod scene;
 
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -100,6 +105,20 @@ fn main() -> ExitCode {
     let words: Vec<&str> = args.iter().map(String::as_str).collect();
     let wants_help = |rest: &[&str]| rest.iter().any(|a| *a == "-h" || *a == "--help");
 
+    // Opened as an app (Finder, Dock, Spotlight) there is no file: ask for one.
+    if words.is_empty() && launched_as_app() {
+        let Some(file) = rfd::FileDialog::new().set_title("Open a recfile").add_filter("recfile", &["rec"]).pick_file() else {
+            return ExitCode::from(OK);
+        };
+        return match run(file) {
+            Ok(()) => ExitCode::from(OK),
+            Err(e) => {
+                eprintln!("draw_graph: {e}");
+                ExitCode::from(USAGE)
+            }
+        };
+    }
+
     match words.as_slice() {
         [] | ["-h" | "--help", ..] => {
             print!("{}", usage());
@@ -132,7 +151,7 @@ fn main() -> ExitCode {
             print!("{}", verb_help(find("open").expect("open is in VERBS")));
             ExitCode::from(OK)
         }
-        ["open", file] | [file] if file.ends_with(".rec") => match gui::run(PathBuf::from(file)) {
+        ["open", file] | [file] if file.ends_with(".rec") => match run(PathBuf::from(file)) {
             Ok(()) => ExitCode::from(OK),
             Err(e) => {
                 eprintln!("draw_graph: {e}");
@@ -170,6 +189,60 @@ fn check(files: &[&str]) -> ExitCode {
     let noun = if total == 1 { "problem" } else { "problems" };
     eprintln!("{total} {noun}");
     ExitCode::from(if total == 0 { OK } else { PROBLEMS })
+}
+
+/// A system font with ▸, ↑, ↺ and arrows, added after egui's own fonts so
+/// they fill only what those lack. Without one, plain ASCII marks.
+const SYMBOLS: &[&str] = &[
+    "/System/Library/Fonts/Apple Symbols.ttf",
+    "/System/Library/Fonts/Supplemental/Arial Unicode.ttf",
+];
+
+fn fonts(ctx: &eframe::egui::Context) -> &'static scene::Marks {
+    use eframe::egui::{FontData, FontDefinitions, FontFamily};
+    let Some(bytes) = SYMBOLS.iter().find_map(|p| std::fs::read(p).ok()) else {
+        return &scene::PLAIN;
+    };
+    let mut defs = FontDefinitions::default();
+    defs.font_data
+        .insert("symbols".into(), std::sync::Arc::new(FontData::from_owned(bytes)));
+    for family in [FontFamily::Proportional, FontFamily::Monospace] {
+        defs.families.entry(family).or_default().push("symbols".into());
+    }
+    ctx.set_fonts(defs);
+    &scene::FANCY
+}
+
+/// Started from a macOS .app bundle rather than a terminal.
+fn launched_as_app() -> bool {
+    std::env::current_exe().is_ok_and(|p| p.to_string_lossy().contains(".app/Contents/MacOS/"))
+}
+
+/// Open the window on a file; returns when it closes.
+fn run(path: PathBuf) -> Result<(), String> {
+    let path = path.canonicalize().map_err(|e| format!("cannot open {}: {e}", path.display()))?;
+    let file = file::File::open(path)?;
+    let title = format!(
+        "draw_graph - {}",
+        file.path.file_name().and_then(|f| f.to_str()).unwrap_or_default()
+    );
+    let options = eframe::NativeOptions {
+        viewport: eframe::egui::ViewportBuilder::default()
+            .with_inner_size([1400.0, 900.0])
+            .with_min_inner_size([700.0, 450.0])
+            .with_title(&title),
+        ..Default::default()
+    };
+    eframe::run_native(
+        "draw_graph",
+        options,
+        Box::new(move |cc| {
+            cc.egui_ctx.set_visuals(eframe::egui::Visuals::dark());
+            let marks = fonts(&cc.egui_ctx);
+            Ok(Box::new(app::App::new(cc, file, marks)))
+        }),
+    )
+    .map_err(|e| format!("the window failed: {e}"))
 }
 
 #[cfg(test)]

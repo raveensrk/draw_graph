@@ -1,10 +1,9 @@
-# A tag v* builds the app and attaches the installers to a draft release:
-# .dmg and .app for macOS, Apple silicon and Intel. Publish the draft by hand.
-# macOS only for now; Linux (.AppImage) and Windows (.msi) come back by
-# adding their rows to the matrix (ubuntu-22.04 + x86_64-unknown-linux-gnu,
-# windows-latest + x86_64-pc-windows-msvc); the Linux step below stays ready.
+# A tag v* builds the Mac app for Apple silicon and Intel and attaches each
+# .dmg to a draft release. Publish the draft by hand.
 #
-#   git tag v0.1.0 && git push origin v0.1.0
+#   git tag -a v0.2.0 -m "draw_graph 0.2.0" && git push origin v0.2.0
+#
+# macOS only for now; Linux and Windows need their own bundle steps.
 name: release
 
 on:
@@ -19,43 +18,24 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: macos-latest
-            target: aarch64-apple-darwin
-          - os: macos-latest
-            target: x86_64-apple-darwin
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-latest
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-
-      - name: Linux libraries for the web view
-        if: runner.os == 'Linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf xdg-utils
-
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown,${{ matrix.target }}
+          targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           key: ${{ matrix.target }}
+      - run: script/bundle_macos.sh --target ${{ matrix.target }}
 
-      # Trunk builds the Leptos web view before Tauri bundles it.
-      - uses: taiki-e/install-action@v2
-        with:
-          tool: trunk
-
-      - uses: tauri-apps/tauri-action@v1
+      # Both jobs may create the draft; the second finds it and uploads.
+      - name: Attach to the draft release
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          projectPath: app
-          tauriScript: npx --yes @tauri-apps/cli@2
-          args: --target ${{ matrix.target }}
-          tagName: ${{ github.ref_name }}
-          releaseName: draw_graph ${{ github.ref_name }}
-          releaseBody: "macOS builds of draw_graph: aarch64 for Apple silicon, x64 for Intel. Not signed: on first launch, allow it in System Settings > Privacy & Security."
-          releaseDraft: true
-          prerelease: false
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          gh release view "$TAG" >/dev/null 2>&1 || gh release create "$TAG" --draft --title "draw_graph $TAG" --notes "macOS builds of draw_graph: aarch64 for Apple silicon, x64 for Intel. Not signed: on first launch, allow it in System Settings > Privacy & Security." || true
+          gh release upload "$TAG" dist/*.dmg --clobber

@@ -2,19 +2,18 @@
 
 A desktop app for drawing graphs - learning paths, mind maps, flowcharts and
 concept maps - saved as one plain-text [recfile](https://www.gnu.org/software/recutils/).
-Keyboard first, vim keys, works offline on macOS, Linux and Windows.
+Keyboard first, vim keys, works offline. One native window (egui), no web view.
 
-Status: the window (canvas, vim keys, side panel, live reload) and
-`draw_graph check` work; the tree view is next. The spec is [PLAN.md](PLAN.md); a sample document is
+The spec is [PLAN.md](PLAN.md); a sample document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Install
 
-From source, until release builds exist (needs the wasm target, Trunk
-and tauri-cli; see AGENTS.md):
+A `.dmg` for each release is on the
+[releases page](https://github.com/raveensrk/draw_graph/releases). From
+source, on a Mac with Rust:
 
-    cd app && cargo tauri build --no-bundle
+    script/bundle_macos.sh --install
 
-The binary is `target/release/draw_graph`.
-
-Then run `draw_graph --help`.
+That puts `draw_graph.app` in `~/Applications` and the `draw_graph` command
+in `~/.local/bin`. Then run `draw_graph --help`.

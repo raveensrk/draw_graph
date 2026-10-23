@@ -1,5 +1,5 @@
 [workspace]
-members = ["core", "app", "ui", "egui"]
+members = ["core", "app"]
 resolver = "3"
 
 [workspace.package]
