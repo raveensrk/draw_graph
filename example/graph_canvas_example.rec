@@ -1,0 +1,581 @@
+# graph_canvas example: the plan for graph_canvas itself, drawn as a graph.
+#
+# One file mixes the four kinds of graph the app is for:
+#   learning path   tools to learn first          Edge Kind requires
+#   flowchart       how a save is checked         Edge Kind flow
+#   mind map        what the app is for            Edge Kind branch
+#   concept map     how the parts relate           Edge Kind relates
+#
+# Record types:
+#   Group   a box on the canvas; Parent nests it in another box
+#   Node    one node; its fields come from the %type lines below
+#   Edge    one arrow; From and To name nodes
+#   View    a saved way of looking at the graph (layout, root, folds)
+#
+# %graph lines are graph_canvas settings. recfix ignores them; the app
+# reads them as rules and styles. A rule is checked on every edit, and an
+# edit that breaks one is refused.
+
+%rec: Group
+%key: Name
+%type: Parent rec Group
+%type: Color regexp /^#[0-9a-f]{6}$/
+%type: Collapsed enum yes no
+%mandatory: Name
+%allowed: Name Label Parent Color Collapsed Note
+%graph: parent Parent
+
+Name: Learning
+Label: Learning path
+Color: #1f4f6f
+
+Name: Languages
+Parent: Learning
+
+Name: Frameworks
+Parent: Learning
+
+Name: App
+Label: graph_canvas app
+Color: #3a2f5f
+
+Name: Backend
+Label: Backend (Rust)
+Parent: App
+
+Name: Frontend
+Label: Frontend (web view)
+Parent: App
+
+Name: Canvas
+Parent: Frontend
+Note: Everything drawn on the canvas.
++ Collapsed by default so the Frontend box stays small.
+Collapsed: yes
+
+Name: Save flow
+Label: How a save is checked
+Color: #5f4f1f
+
+Name: Ideas
+Label: What it is for
+Color: #1f5f46
+
+%rec: Node
+%key: Name
+%type: Kind enum tool task step decision start end idea concept
+%type: Level range 1 5
+%type: Tier enum base extra max
+%type: Status enum todo doing done
+%type: Group rec Group
+%type: Color regexp /^#[0-9a-f]{6}$/
+%type: Shape enum box round diamond ellipse
+%type: Pos regexp /^-?[0-9]+ -?[0-9]+$/
+%mandatory: Name Kind
+%allowed: Name Label Kind Level Tier Status Group Color Shape Url Note Pos
+%graph: label Label Name
+%graph: color Level
+%graph: shape Kind tool=round task=box step=box decision=diamond start=ellipse end=ellipse idea=round concept=round
+%graph: pos Pos
+%graph: group Group
+%graph: filter Tier
+
+# Learning path: tools, with how hard each is (Level) and how much it matters (Tier).
+
+Name: Bash
+Kind: tool
+Level: 1
+Tier: base
+Group: Languages
+Note: Also stands for shell scripting.
+Pos: 0 0
+
+Name: HTML
+Kind: tool
+Level: 1
+Tier: base
+Group: Languages
+Pos: 0 120
+
+Name: CSS
+Kind: tool
+Level: 2
+Tier: base
+Group: Languages
+Pos: 200 160
+
+Name: JavaScript
+Kind: tool
+Level: 2
+Tier: base
+Group: Languages
+Pos: 200 80
+
+Name: TypeScript
+Kind: tool
+Level: 3
+Tier: base
+Group: Languages
+Url: https://www.typescriptlang.org
+Pos: 400 80
+
+Name: Rust
+Kind: tool
+Level: 4
+Tier: base
+Group: Languages
+Url: https://www.rust-lang.org
+Note: The hard one. Ownership and lifetimes take weeks.
++ Read the book first: https://doc.rust-lang.org/book/
+Pos: 600 0
+
+Name: recutils
+Label: recfile (GNU recutils)
+Kind: tool
+Level: 2
+Tier: base
+Group: Frameworks
+Url: https://www.gnu.org/software/recutils/
+Note: recfix checks the schema; it does not check that a
++ `rec` foreign key points at a real record.
+Pos: 200 -80
+
+Name: Cytoscape.js
+Kind: tool
+Level: 3
+Tier: base
+Group: Frameworks
+Url: https://js.cytoscape.org
+Pos: 400 200
+
+Name: ELK.js
+Kind: tool
+Level: 3
+Tier: extra
+Group: Frameworks
+Url: https://github.com/kieler/elkjs
+Note: Layered, tree and radial layouts.
+Pos: 600 200
+
+Name: Tauri
+Kind: tool
+Level: 4
+Tier: base
+Group: Frameworks
+Url: https://tauri.app
+Pos: 800 80
+
+# App: the work itself. Tasks carry no Level, so the Level rule skips them.
+
+Name: rec parser
+Label: Read and write recfiles
+Kind: task
+Status: doing
+Group: Backend
+Note: Rewrite only the records that change; keep comments,
++ blank lines and order, so a git diff shows the edit and nothing else.
+Pos: 1000 -80
+
+Name: Rule engine
+Kind: task
+Status: todo
+Group: Backend
+Pos: 1200 -80
+
+Name: CLI check
+Label: graph_canvas check FILE
+Kind: task
+Status: todo
+Group: Backend
+Pos: 1400 -80
+
+Name: File watcher
+Kind: task
+Status: todo
+Group: Backend
+Note: Reload when vim, git or an agent writes the file.
+Pos: 1000 40
+
+Name: Vim keymap
+Kind: task
+Status: todo
+Group: Canvas
+Note: hjkl  move to the nearest node that way
++ o      add a child      O  add a parent
++ dd     delete           u  undo
++ za     fold / unfold    /  search
+Pos: 1000 200
+
+Name: Tree view
+Kind: task
+Status: todo
+Group: Canvas
+Note: A node with several parents shows under each one.
+Pos: 1200 200
+
+Name: SVG export
+Kind: task
+Status: todo
+Tier: extra
+Group: Canvas
+Pos: 1200 300
+
+Name: Release builds
+Kind: task
+Status: todo
+Group: App
+Color: #6f341f
+Note: .dmg, .msi and .AppImage from CI, one per tag.
+Pos: 1400 80
+
+# Save flow: a flowchart. Its loop (fix, then try again) is allowed:
+# only requires edges must have no loop.
+
+Name: Edit made
+Kind: start
+Group: Save flow
+Pos: 0 500
+
+Name: recfix passes?
+Label: recfix --check passes?
+Kind: decision
+Group: Save flow
+Pos: 200 500
+
+Name: Rules pass?
+Kind: decision
+Group: Save flow
+Pos: 400 500
+
+Name: Show problems
+Kind: step
+Group: Save flow
+Color: #8a2a2a
+Pos: 300 620
+
+Name: Write file
+Kind: step
+Group: Save flow
+Pos: 600 500
+
+Name: Redraw
+Kind: end
+Group: Save flow
+Pos: 800 500
+
+# Ideas: a mind map around the app.
+
+Name: graph_canvas
+Kind: idea
+Group: Ideas
+Color: #c0a030
+Shape: ellipse
+Pos: 0 900
+
+Name: Learning paths
+Kind: idea
+Group: Ideas
+Pos: -200 800
+
+Name: Mind maps
+Kind: idea
+Group: Ideas
+Pos: 200 800
+
+Name: Flowcharts
+Kind: idea
+Group: Ideas
+Pos: -200 1000
+
+Name: Concept maps
+Kind: idea
+Group: Ideas
+Pos: 200 1000
+
+Name: Live reload
+Label: Live reload from agents
+Kind: concept
+Group: Ideas
+Pos: 400 900
+
+Name: Small diffs
+Label: Git-friendly diffs
+Kind: concept
+Group: Ideas
+Pos: -400 900
+
+%rec: Edge
+%type: From,To rec Node
+%type: Kind enum requires flow branch relates
+%type: Any line
+%mandatory: From To Kind
+%allowed: From To Kind Label Any Note
+%graph: from From
+%graph: to To
+%graph: any Any
+%graph: style Kind requires=solid flow=solid branch=solid relates=dotted
+%graph: acyclic Kind=requires
+%graph: rise Level Tier when Kind=requires
+%graph: no_implied when Kind=requires
+
+# Learning path. A requires edge is AND; edges that share an Any value
+# are OR: Tauri needs Rust, and TypeScript or JavaScript.
+
+From: Bash
+To: Rust
+Kind: requires
+
+From: Bash
+To: recutils
+Kind: requires
+
+From: HTML
+To: JavaScript
+Kind: requires
+
+From: HTML
+To: CSS
+Kind: requires
+
+From: JavaScript
+To: TypeScript
+Kind: requires
+
+From: JavaScript
+To: Cytoscape.js
+Kind: requires
+
+From: Cytoscape.js
+To: ELK.js
+Kind: requires
+
+From: Rust
+To: Tauri
+Kind: requires
+
+From: TypeScript
+To: Tauri
+Kind: requires
+Any: tauri-ui
+
+From: JavaScript
+To: Tauri
+Kind: requires
+Any: tauri-ui
+Note: Plain JavaScript works; TypeScript is the better choice.
+
+# App work: each task requires what it is built with.
+
+From: Rust
+To: rec parser
+Kind: requires
+
+From: recutils
+To: rec parser
+Kind: requires
+
+From: rec parser
+To: Rule engine
+Kind: requires
+
+From: Rule engine
+To: CLI check
+Kind: requires
+
+From: Tauri
+To: File watcher
+Kind: requires
+
+From: rec parser
+To: File watcher
+Kind: requires
+
+From: Cytoscape.js
+To: Vim keymap
+Kind: requires
+
+From: ELK.js
+To: Tree view
+Kind: requires
+
+From: Vim keymap
+To: Tree view
+Kind: requires
+Note: Folding (za) is how the tree expands and collapses.
+
+From: Cytoscape.js
+To: SVG export
+Kind: requires
+
+From: CLI check
+To: Release builds
+Kind: requires
+
+From: Tree view
+To: Release builds
+Kind: requires
+
+From: File watcher
+To: Release builds
+Kind: requires
+
+# Save flow: labelled branches, and a loop back to the start.
+
+From: Edit made
+To: recfix passes?
+Kind: flow
+
+From: recfix passes?
+To: Rules pass?
+Kind: flow
+Label: yes
+
+From: recfix passes?
+To: Show problems
+Kind: flow
+Label: no
+
+From: Rules pass?
+To: Write file
+Kind: flow
+Label: yes
+
+From: Rules pass?
+To: Show problems
+Kind: flow
+Label: no
+
+From: Show problems
+To: Edit made
+Kind: flow
+Label: fix, then try again
+
+From: Write file
+To: Redraw
+Kind: flow
+
+# Mind map: branches out from the centre.
+
+From: graph_canvas
+To: Learning paths
+Kind: branch
+
+From: graph_canvas
+To: Mind maps
+Kind: branch
+
+From: graph_canvas
+To: Flowcharts
+Kind: branch
+
+From: graph_canvas
+To: Concept maps
+Kind: branch
+
+From: graph_canvas
+To: Live reload
+Kind: branch
+
+From: graph_canvas
+To: Small diffs
+Kind: branch
+
+# Concept map: labelled links across the other three. Loops are fine here.
+
+From: Tree view
+To: Mind maps
+Kind: relates
+Label: draws
+
+From: Tree view
+To: Learning paths
+Kind: relates
+Label: draws
+
+From: Rule engine
+To: Save flow
+Kind: relates
+Label: runs
+Note: An edge may point at a group: the arrow ends on its box.
+
+From: File watcher
+To: Live reload
+Kind: relates
+Label: enables
+
+From: rec parser
+To: Small diffs
+Kind: relates
+Label: keeps
+
+From: Small diffs
+To: rec parser
+Kind: relates
+Label: constrains
+
+From: Flowcharts
+To: Save flow
+Kind: relates
+Label: example
+
+%rec: View
+%key: Name
+%type: Layout enum layered tree radial force manual
+%type: Direction enum right down left up
+%type: Root rec Node
+%type: Follow enum out in
+%type: Repeat enum fold full
+%mandatory: Name Layout
+%allowed: Name Layout Direction Root Follow Edges Filter Collapse Repeat Note
+# Repeat is how a tree view shows a node it reaches a second time (a node
+# with several parents). fold, the default: the first copy shows its whole
+# branch, every later copy starts folded and carries a "same as above"
+# marker that jumps to the first; za still unfolds it. full: every copy
+# shows its whole branch, so branches multiply down a chain.
+
+Name: Learning path
+Layout: layered
+Direction: right
+Edges: requires
+Filter: Kind = 'tool'
+Note: Like dev_tools_path.svg: columns by Level, left to right.
+
+Name: Build tree
+Layout: tree
+Direction: down
+Root: Tauri
+Follow: out
+Edges: requires
+Collapse: rec parser
+Repeat: fold
+Note: Everything Tauri unlocks, as a tree. Release builds
++ shows three times, once under each parent: in full under
++ the first, folded with "same as above" under the other two.
++ rec parser starts folded too.
+
+Name: What Tree view needs
+Layout: tree
+Direction: up
+Root: Tree view
+Follow: in
+Edges: requires
+Repeat: full
+Note: The same edges walked backwards: every prerequisite of Tree view.
++ Small enough to show every copy in full.
+
+Name: Save flow
+Layout: layered
+Direction: down
+Edges: flow
+Filter: Group = 'Save flow'
+
+Name: Mind map
+Layout: radial
+Root: graph_canvas
+Edges: branch relates
+Collapse: Live reload
+Collapse: Small diffs
+
+Name: Everything
+Layout: manual
+Note: Saved Pos for every node; groups as nested boxes.
