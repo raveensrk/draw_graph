@@ -273,6 +273,40 @@ window.dgCanvas = {
     return best;
   },
 
+  // Move along the drawn edges. dir: child (something it unlocks), parent
+  // (a prerequisite), next or prev (a sibling: the parent's other children,
+  // top to bottom). via is the parent the walk came from, which keeps
+  // siblings and the way back stable. Returns [id, via] as JSON, or null.
+  //
+  //   Bash ──> Git      Shift+→ from Bash: the closest child; Shift+↓ from
+  //        └─> Python   Git: Python, the next child of Bash
+  walk(id, dir, via) {
+    const el = cy.getElementById(id);
+    const node = el.isEdge && el.isEdge() ? el.source() : el;
+    if (node.empty()) return null;
+    const p = node.position();
+    const near = (c) => c.min((n) => Math.hypot(n.position("x") - p.x, n.position("y") - p.y)).ele;
+    const order = (c) => c.sort((a, b) => a.position("y") - b.position("y") || a.position("x") - b.position("x"));
+
+    const kids = node.outgoers("node");
+    const parents = node.incomers("node");
+    if (dir === "child") {
+      return kids.length ? JSON.stringify([near(kids).id(), node.id()]) : null;
+    }
+    const from = parents.filter((n) => n.id() === via);
+    if (dir === "parent") {
+      if (!parents.length) return null;
+      return JSON.stringify([(from.length ? from[0] : near(parents)).id(), null]);
+    }
+    const parent = from.length ? from[0] : parents.length ? near(parents) : null;
+    if (!parent) return null;
+    const sibs = order(parent.outgoers("node"));
+    if (sibs.length < 2) return null;
+    const i = sibs.toArray().findIndex((n) => n.id() === node.id());
+    const j = (i + (dir === "next" ? 1 : sibs.length - 1)) % sibs.length;
+    return JSON.stringify([sibs[j].id(), parent.id()]);
+  },
+
   // Highlight one element; pan to it when it is off screen.
   focus(id) {
     cy.elements().removeClass("focus");

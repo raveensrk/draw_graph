@@ -193,7 +193,9 @@ mapping. Dark theme by default.
 Vim keys on the canvas. The help page (`?`) lists them from the same table
 the code uses (`KEYS` in `ui/src/main.rs`). Shipped in step 2:
 
-`h j k l` or the arrow keys move, `e` step through edges, `Enter`/`i` edit in the panel,
+`h j k l` or the arrow keys move to the nearest node by position;
+Shift + arrows move along the drawn edges (→ what it unlocks, ← a
+prerequisite, ↑ ↓ siblings under the parent you came from); `e` step through edges, `Enter`/`i` edit in the panel,
 `Esc` back, `o`/`O` add after/before, `a` add alone, `c` connect, `dd`
 delete, `u`/`Ctrl-r` undo/redo, `/` `n` `N` search, `L` next layout (or
 leave a tree), `s` save positions, `f` fit, `?` help.

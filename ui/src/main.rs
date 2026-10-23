@@ -48,6 +48,8 @@ extern "C" {
     fn canvas_fit();
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = renderTree)]
     fn canvas_render_tree(items: &str, refit: bool);
+    #[wasm_bindgen(js_namespace = dgCanvas, js_name = walk)]
+    fn canvas_walk(id: &str, dir: &str, via: Option<String>) -> Option<String>;
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = follow)]
     fn canvas_follow(id: &str);
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = exportSvg)]
@@ -63,7 +65,11 @@ const STEP_Y: i64 = 70;
 
 /// One table drives the help page.
 const KEYS: &[(&str, &str)] = &[
-    ("h j k l, arrows", "move to the nearest node left, down, up, right"),
+    ("h j k l, arrows", "move to the nearest node left, down, up, right (by position)"),
+    (
+        "Shift + arrows",
+        "move along the edges: → what it unlocks, ← a prerequisite, ↑ ↓ siblings",
+    ),
     ("e", "step through the focused node's edges"),
     ("Enter, i", "edit the focused record in the side panel"),
     ("Esc", "back to the canvas; close a prompt or this page"),
@@ -208,6 +214,8 @@ fn App() -> impl IntoView {
     let branch_folds = RwSignal::new(Vec::<String>::new());
     // Follow mode (F): every new selection is zoomed to and centred.
     let follow = RwSignal::new(false);
+    // The parent an edge walk (Shift + arrows) came from.
+    let via = StoredValue::new(None::<String>);
     let view_at = StoredValue::new(None::<usize>);
     let items = Memo::new(move |_| {
         let mm = m.get();
@@ -767,6 +775,37 @@ fn App() -> impl IntoView {
             return;
         }
 
+        // Shift + arrows walk the edges; plain arrows move by position.
+        let walk = match key.as_str() {
+            "ArrowRight" if ev.shift_key() => Some("child"),
+            "ArrowLeft" if ev.shift_key() => Some("parent"),
+            "ArrowDown" if ev.shift_key() => Some("next"),
+            "ArrowUp" if ev.shift_key() => Some("prev"),
+            _ => None,
+        };
+        if let Some(dir) = walk {
+            ev.prevent_default();
+            if at.is_empty() {
+                msg.set("select a node first".into());
+                return;
+            }
+            let hop = canvas_walk(&at, dir, via.get_value()).and_then(|j| serde_json::from_str::<(String, Option<String>)>(&j).ok());
+            match hop {
+                Some((next, from)) => {
+                    via.set_value(from);
+                    focus.set(Some(next));
+                }
+                None => msg.set(
+                    match dir {
+                        "child" => "it unlocks nothing that is drawn",
+                        "parent" => "it needs nothing that is drawn",
+                        _ => "no sibling to move to",
+                    }
+                    .into(),
+                ),
+            }
+            return;
+        }
         let key = match key.as_str() {
             "ArrowLeft" => "h".to_string(),
             "ArrowDown" => "j".to_string(),
