@@ -1,6 +1,8 @@
-# A tag v* builds the app on each platform and attaches the installers to a
-# draft release: .dmg and .app (macOS, Apple silicon and Intel), .msi and
-# .exe (Windows), .AppImage and .deb (Linux). Publish the draft by hand.
+# A tag v* builds the app and attaches the installers to a draft release:
+# .dmg and .app for macOS, Apple silicon and Intel. Publish the draft by hand.
+# macOS only for now; Linux (.AppImage) and Windows (.msi) come back by
+# adding their rows to the matrix (ubuntu-22.04 + x86_64-unknown-linux-gnu,
+# windows-latest + x86_64-pc-windows-msvc); the Linux step below stays ready.
 #
 #   git tag v0.1.0 && git push origin v0.1.0
 name: release
@@ -22,10 +24,6 @@ jobs:
             target: aarch64-apple-darwin
           - os: macos-latest
             target: x86_64-apple-darwin
-          - os: ubuntu-22.04
-            target: x86_64-unknown-linux-gnu
-          - os: windows-latest
-            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
     steps:
@@ -58,6 +56,6 @@ jobs:
           args: --target ${{ matrix.target }}
           tagName: ${{ github.ref_name }}
           releaseName: draw_graph ${{ github.ref_name }}
-          releaseBody: "Desktop builds of draw_graph. macOS and Windows builds are not signed: macOS asks you to allow the app in System Settings > Privacy & Security on first launch; Windows SmartScreen asks once too."
+          releaseBody: "macOS builds of draw_graph: aarch64 for Apple silicon, x64 for Intel. Not signed: on first launch, allow it in System Settings > Privacy & Security."
           releaseDraft: true
           prerelease: false
