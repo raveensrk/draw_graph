@@ -107,7 +107,11 @@ fn main() -> ExitCode {
 
     // Opened as an app (Finder, Dock, Spotlight) there is no file: ask for one.
     if words.is_empty() && launched_as_app() {
-        let Some(file) = rfd::FileDialog::new().set_title("Open a recfile").add_filter("recfile", &["rec"]).pick_file() else {
+        let Some(file) = rfd::FileDialog::new()
+            .set_title("Open a recfile")
+            .add_filter("recfile", &["rec"])
+            .pick_file()
+        else {
             return ExitCode::from(OK);
         };
         return match run(file) {
