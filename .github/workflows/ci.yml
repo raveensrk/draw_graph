@@ -1,0 +1,23 @@
+# Every push: the core tests and lints, and the web view builds for wasm.
+# The app crate needs a desktop toolchain; release.yml builds it.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      - run: cargo test -p draw_graph_core
+      - run: cargo clippy -p draw_graph_core --all-targets -- -D warnings
+      - run: cargo clippy -p draw_graph_ui --target wasm32-unknown-unknown -- -D warnings

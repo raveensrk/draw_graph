@@ -206,7 +206,9 @@ calls it (since 2026-10-24), from `~/.local/bin/draw_graph`.
    (its editor, charts and checks). Done 2026-10-24: 77 Node, 80 Edge and 3
    Group records, proven identical to the old file; the charts dropped;
    agent1's `dev_tools_rec.py` runs `recfix` and `draw_graph check`.
-6. CI release builds.
+6. CI release builds: `.github/workflows/release.yml` builds each `v*` tag on
+   macOS (Apple silicon, Intel), Linux and Windows into a draft release;
+   `ci.yml` tests every push.
 
 ## Known risks
 
