@@ -1,0 +1,13 @@
+[package]
+name = "draw_graph_egui"
+description = "Prototype: draw_graph's window in egui, no web view"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+
+[dependencies]
+draw_graph_core = { path = "../core" }
+eframe = "0.35"
+notify = "8"
