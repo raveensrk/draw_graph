@@ -193,7 +193,7 @@ repeat to its first copy.
 The same binary runs headless: `draw_graph check FILE.rec` prints
 problems and exits 1 on any. agent1's
 [dev_tools_rec.py](https://github.com/raveensrk/agent1/blob/main/harness/checks/dev_tools_rec.py)
-calls it once `dev_tools.py` is retired.
+calls it (since 2026-10-24), from `~/.local/bin/draw_graph`.
 
 ## Build order
 
@@ -203,7 +203,9 @@ calls it once `dev_tools.py` is retired.
 3. Tree view: root, follow, fold, `Repeat`. Done 2026-10-23.
 4. Nested groups and SVG export. Done 2026-10-23.
 5. Convert agent1's `dev_tools.rec` to Edge records; retire `dev_tools.py`
-   (its editor, charts and checks).
+   (its editor, charts and checks). Done 2026-10-24: 77 Node, 80 Edge and 3
+   Group records, proven identical to the old file; the charts dropped;
+   agent1's `dev_tools_rec.py` runs `recfix` and `draw_graph check`.
 6. CI release builds.
 
 ## Known risks
@@ -214,9 +216,7 @@ calls it once `dev_tools.py` is retired.
   `mrtree`) lets group boxes overlap. The tree view has its own layout;
   the ELK one may go.
 - **Headless export.** SVG export needs the window, since the layout lives in
-  Cytoscape. agent1's charts are checked headless by `dev_tools.py
-  --check`; step 5 must keep them generated without a window (a Rust
-  exporter from saved `Pos`), or drop them.
+  Cytoscape. agent1's charts were dropped in step 5, so nothing needs it yet.
 - **A Cytoscape redraw bug.** Swapping elements once threw inside
   Cytoscape's renderer after a box was removed while focused; headless
   Cytoscape did not reproduce it. Redraws now remove whole top-level
