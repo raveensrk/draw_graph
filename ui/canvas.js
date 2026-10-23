@@ -131,8 +131,9 @@ function elements(model) {
   for (const n of model.nodes) {
     out.push({
       group: "nodes",
-      data: { id: "n:" + n.name, name: n.name, kind: "node", label: n.label, color: n.color, shape: SHAPES[n.shape] || "round-rectangle", parent: n.group ? "g:" + n.group : undefined },
+      data: { id: "n:" + n.name, name: n.name, kind: "node", label: n.hidden ? `${n.label} ▸ ${n.hidden}` : n.label, color: n.color, shape: SHAPES[n.shape] || "round-rectangle", parent: n.group ? "g:" + n.group : undefined },
       position: n.pos ? { x: n.pos[0], y: n.pos[1] } : undefined,
+      classes: n.hidden ? "folded" : "",
     });
   }
   const known = new Set(out.map((e) => e.data.id));

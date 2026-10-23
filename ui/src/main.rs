@@ -16,7 +16,7 @@
 
 use draw_graph_core::check::Problem;
 use draw_graph_core::edit::Edit;
-use draw_graph_core::model::{Input, Model, folded, model};
+use draw_graph_core::model::{Input, Model, branches, folded, model};
 use draw_graph_core::tree::{Item, Spec, common_kind, tree as walk};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -61,7 +61,7 @@ const STEP_Y: i64 = 70;
 
 /// One table drives the help page.
 const KEYS: &[(&str, &str)] = &[
-    ("h j k l", "move to the nearest node left, down, up, right"),
+    ("h j k l, arrows", "move to the nearest node left, down, up, right"),
     ("e", "step through the focused node's edges"),
     ("Enter, i", "edit the focused record in the side panel"),
     ("Esc", "back to the canvas; close a prompt or this page"),
@@ -81,12 +81,9 @@ const KEYS: &[(&str, &str)] = &[
     (";", "next edge kind to follow or show; then back to all"),
     (
         "za",
-        "fold or unfold: a branch in a tree (a repeat opens that copy), a group box in the graph",
+        "fold or unfold the focused node's branch (all it unlocks), or a group box; in a tree, a repeat opens that copy",
     ),
-    (
-        "zR, zM",
-        "unfold everything, fold everything (branches in a tree, boxes in the graph)",
-    ),
+    ("zR, zM", "unfold everything; fold every box (in a tree: every branch)"),
     ("G", "put the focused node in a new group, inside its current one"),
     ("E", "export what is on screen as FILE.svg next to the file"),
     ("gd", "jump from a repeat to its first copy"),
@@ -202,6 +199,9 @@ fn App() -> impl IntoView {
     let pending = RwSignal::new(None::<char>);
     let tree = RwSignal::new(None::<TreeState>);
     let kinds = RwSignal::new(Vec::<String>::new());
+    let tag_filter = RwSignal::new(None::<String>);
+    // Graph-view branch folds (za on a node): memory only.
+    let branch_folds = RwSignal::new(Vec::<String>::new());
     let view_at = StoredValue::new(None::<usize>);
     let items = Memo::new(move |_| {
         let mm = m.get();
@@ -347,10 +347,31 @@ fn App() -> impl IntoView {
             shown_layout.set_value(key);
             canvas_render_tree(&serde_json::to_string(&its).expect("items serialize"), refit);
         } else {
-            let key = format!("{lay}:{}", only.join(" "));
+            let tagged = tag_filter.get();
+            let key = format!("{lay}:{}:{}", only.join(" "), tagged.clone().unwrap_or_default());
             let refit = shown_layout.get_value() != key;
             shown_layout.set_value(key);
-            let mut shown = folded(&mm);
+            let mut shown = branches(&folded(&mm), &branch_folds.get());
+            if let Some(t) = &tagged {
+                shown.nodes.retain(|n| n.tags.contains(t));
+                let mut boxes: Vec<String> = shown.nodes.iter().filter_map(|n| n.group.clone()).collect();
+                let mut i = 0;
+                while i < boxes.len() {
+                    if let Some(p) = mm
+                        .groups
+                        .iter()
+                        .find(|g| g.name == boxes[i])
+                        .and_then(|g| g.parent.clone())
+                        .filter(|p| !boxes.contains(p))
+                    {
+                        boxes.push(p);
+                    }
+                    i += 1;
+                }
+                shown.groups.retain(|g| boxes.contains(&g.name));
+                let kept: Vec<String> = shown.nodes.iter().map(|n| n.name.clone()).chain(boxes).collect();
+                shown.edges.retain(|e| kept.contains(&e.from) && kept.contains(&e.to));
+            }
             if let Some((field, _)) = mm.edge_kinds.as_ref().filter(|_| !only.is_empty()) {
                 shown.edges.retain(|e| e.fields.iter().any(|(k, v)| k == field && only.contains(v)));
             }
@@ -545,6 +566,10 @@ fn App() -> impl IntoView {
         let key = ev.key();
         let tag = active_tag();
         if key == "Escape" {
+            if mode.get_untracked() == Mode::Normal && pending.get_untracked().is_none() && tag_filter.get_untracked().is_some() {
+                tag_filter.set(None);
+                msg.set("tag filter cleared".into());
+            }
             blur();
             mode.set(Mode::Normal);
             ask.set(String::new());
@@ -615,8 +640,28 @@ fn App() -> impl IntoView {
                         Some(format!("g:{name}")),
                     );
                 }
+                ('z', "a") if it.is_none() && at.starts_with("n:") => {
+                    let name = at[2..].to_string();
+                    let unlocks = m.with_untracked(|mm| mm.edges.iter().any(|e| e.from == name));
+                    if !unlocks {
+                        msg.set(format!("{name} unlocks nothing; nothing to fold"));
+                        return;
+                    }
+                    let open = branch_folds.with_untracked(|f| f.contains(&name));
+                    branch_folds.update(|f| {
+                        if open {
+                            f.retain(|x| *x != name);
+                        } else {
+                            f.push(name.clone());
+                        }
+                    });
+                    msg.set(format!("{} {name}", if open { "unfolded" } else { "folded" }));
+                }
                 ('z', "R" | "M") if tree.with_untracked(Option::is_none) => {
                     let close = key == "M";
+                    if !close {
+                        branch_folds.set(Vec::new());
+                    }
                     let edits: Vec<Edit> = m.with_untracked(|mm| {
                         mm.groups
                             .iter()
@@ -706,6 +751,13 @@ fn App() -> impl IntoView {
             return;
         }
 
+        let key = match key.as_str() {
+            "ArrowLeft" => "h".to_string(),
+            "ArrowDown" => "j".to_string(),
+            "ArrowUp" => "k".to_string(),
+            "ArrowRight" => "l".to_string(),
+            _ => key,
+        };
         match (key.as_str(), ev.ctrl_key()) {
             ("h" | "j" | "k" | "l", false) => {
                 if let Some(next) = canvas_nearest(&at, &key) {
@@ -916,13 +968,13 @@ fn App() -> impl IntoView {
             }
         });
         let body = if let Some(name) = f.strip_prefix("n:") {
-            node_panel(&mm, name, send, focus).into_any()
+            node_panel(&mm, name, send, focus, tag_filter).into_any()
         } else if let Some(i) = f.strip_prefix("e:").and_then(|i| i.parse::<usize>().ok()) {
             edge_panel(&mm, i, send, focus).into_any()
         } else if let Some(name) = f.strip_prefix("g:") {
             group_panel(&mm, name, send, focus).into_any()
         } else {
-            file_panel(&mm, path.get()).into_any()
+            file_panel(&mm, path.get(), tag_filter).into_any()
         };
         view! { {head} {body} }
     };
@@ -946,7 +998,12 @@ fn App() -> impl IntoView {
             <span>{tree.with(|t| match t {
                 Some(TreeState { view: Some(v), .. }) => format!("view {v}"),
                 Some(t) => format!("tree {} ({})", t.spec.root, if t.spec.follow_in { "needs" } else { "unlocks" }),
-                None => format!("layout {}{}", layout.get(), kinds.with(|k| if k.is_empty() { String::new() } else { format!(" · {}", k.join(" ")) })),
+                None => format!(
+                    "layout {}{}{}",
+                    layout.get(),
+                    kinds.with(|k| if k.is_empty() { String::new() } else { format!(" · {}", k.join(" ")) }),
+                    tag_filter.with(|f| f.as_ref().map(|f| format!(" · tag {f}")).unwrap_or_default())
+                ),
             })}</span>
             <span>{format!("{} nodes · {} edges", mm.nodes.len(), mm.edges.len())}</span>
             <span class=bad>{format!("{problems} problems")}</span>
@@ -995,7 +1052,10 @@ fn App() -> impl IntoView {
 
 /// Inputs for a record: the schema's form, plus any field the form lacks.
 /// A repeated field is shown but not edited here: one input would flatten it.
-fn form_view(inputs: &[Input], values: &[(String, String)], set: Callback<(String, String)>) -> impl IntoView {
+fn form_view(inputs: &[Input], values: &[(String, String)], set: Callback<(String, String)>, skip: Option<&str>) -> impl IntoView {
+    let inputs: Vec<Input> = inputs.iter().filter(|i| Some(i.field.as_str()) != skip).cloned().collect();
+    let values: Vec<(String, String)> = values.iter().filter(|(k, _)| Some(k.as_str()) != skip).cloned().collect();
+    let (inputs, values) = (&inputs[..], &values[..]);
     let count = |f: &str| values.iter().filter(|(k, _)| k == f).count();
     let value = |f: &str| values.iter().find(|(k, _)| k == f).map(|(_, v)| v.clone()).unwrap_or_default();
     let mut all: Vec<Input> = inputs.to_vec();
@@ -1046,6 +1106,7 @@ fn node_panel(
     name: &str,
     send: impl Fn(Edit, Option<String>) + Copy + Send + Sync + 'static,
     focus: RwSignal<Option<String>>,
+    tag_filter: RwSignal<Option<String>>,
 ) -> impl IntoView {
     let Some(n) = mm.nodes.iter().find(|n| n.name == name).cloned() else {
         return view! { <p class="sub">{format!("{name} is gone")}</p> }.into_any();
@@ -1095,7 +1156,8 @@ fn node_panel(
     view! {
         <h2>{n.label.clone()}</h2>
         <p class="sub">"Node · Enter edits, Esc returns"</p>
-        {form_view(&mm.node_form, &n.fields, set)}
+        {tag_view(&n.name, &n.tags, mm.names.tag.clone(), send, tag_filter)}
+        {form_view(&mm.node_form, &n.fields, set, mm.names.tag.as_deref())}
         <h3>{format!("Edges ({})", edges.len())}</h3>
         <ul>
             {edges.into_iter().map(|(i, line)| view! { <li class="link" on:click=move |_| focus.set(Some(format!("e:{i}")))>{line}</li> }).collect_view()}
@@ -1118,7 +1180,7 @@ fn edge_panel(
     view! {
         <h2>{format!("{} → {}", e.from, e.to)}</h2>
         <p class="sub">{format!("Edge · {}{}", e.style, e.any.as_ref().map(|a| format!(" · OR group {a}")).unwrap_or_default())}</p>
-        {form_view(&mm.edge_form, &e.fields, set)}
+        {form_view(&mm.edge_form, &e.fields, set, None)}
         <h3>"Ends"</h3>
         <ul>
             <li class="link" on:click=move |_| focus.set(Some(format!("n:{from}")))>{format!("from {}", e.from)}</li>
@@ -1170,7 +1232,7 @@ fn group_panel(
     view! {
         <h2>{g.label.clone()}</h2>
         <p class="sub">"Group"</p>
-        {form_view(&mm.group_form, &g.fields, set)}
+        {form_view(&mm.group_form, &g.fields, set, None)}
         <h3>{format!("Members ({})", members.len())}</h3>
         <ul>
             {members.into_iter().map(|n| { let id = format!("n:{n}"); view! { <li class="link" on:click=move |_| focus.set(Some(id.clone()))>{n}</li> } }).collect_view()}
@@ -1179,7 +1241,92 @@ fn group_panel(
     .into_any()
 }
 
-fn file_panel(mm: &Model, path: String) -> impl IntoView {
+/// A node's tags as chips: click one to filter by it, x removes it, the
+/// field adds one on Enter. The whole list is saved as the node's Tag lines.
+fn tag_view(
+    node: &str,
+    tags: &[String],
+    field: Option<String>,
+    send: impl Fn(Edit, Option<String>) + Copy + Send + Sync + 'static,
+    tag_filter: RwSignal<Option<String>>,
+) -> impl IntoView {
+    let Some(field) = field else { return ().into_any() };
+    let save = {
+        let (node, field) = (node.to_string(), field.clone());
+        Callback::new(move |values: Vec<String>| {
+            send(
+                Edit::SetList {
+                    kind: "Node".into(),
+                    key: node.clone(),
+                    field: field.clone(),
+                    values,
+                },
+                None,
+            );
+        })
+    };
+    let chips = tags
+        .iter()
+        .map(|t| {
+            let rest: Vec<String> = tags.iter().filter(|x| *x != t).cloned().collect();
+            let (pick, label) = (t.clone(), t.clone());
+            view! {
+                <span class="chip">
+                    <span class="chip-name" title="show only this tag" on:click=move |_| tag_filter.set(Some(pick.clone()))>{label}</span>
+                    <button title="remove this tag" on:click=move |_| save.run(rest.clone())>"×"</button>
+                </span>
+            }
+        })
+        .collect_view();
+    let now: Vec<String> = tags.to_vec();
+    view! {
+        <h3>{format!("Tags ({})", tags.len())}</h3>
+        <div class="chips">{chips}</div>
+        <input
+            class="tag-add"
+            placeholder="add a tag, Enter"
+            on:keydown=move |ev: web_sys::KeyboardEvent| {
+                if ev.key() != "Enter" {
+                    return;
+                }
+                ev.prevent_default();
+                ev.stop_propagation();
+                let new = event_target_value(&ev).trim().to_string();
+                if new.is_empty() || now.contains(&new) {
+                    return;
+                }
+                let mut all = now.clone();
+                all.push(new);
+                save.run(all);
+            }
+        />
+    }
+    .into_any()
+}
+
+fn file_panel(mm: &Model, path: String, tag_filter: RwSignal<Option<String>>) -> impl IntoView {
+    let on = tag_filter.get_untracked();
+    let tags = mm
+        .tags
+        .iter()
+        .map(|(t, n)| {
+            let pick = t.clone();
+            let active = on.as_deref() == Some(t.as_str());
+            view! {
+                <li class="link" class:on=active title="show only this tag; again to clear" on:click=move |_| {
+                    tag_filter.update(|f| *f = if f.as_deref() == Some(pick.as_str()) { None } else { Some(pick.clone()) })
+                }>{format!("{t}  ({n})")}</li>
+            }
+        })
+        .collect_view();
+    view! {
+        {file_summary(mm, path)}
+        <h3>{format!("Tags ({})", mm.tags.len())}</h3>
+        <ul class="tags">{tags}</ul>
+    }
+}
+
+fn file_summary(mm: &Model, path: String) -> impl IntoView {
     view! {
         <h2>{path.rsplit('/').next().unwrap_or_default().to_string()}</h2>
         <p class="sub">{path.clone()}</p>

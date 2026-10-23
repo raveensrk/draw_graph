@@ -121,8 +121,8 @@ fn edge_to_an_unknown_node() {
 fn node_in_an_unknown_group() {
     expect(
         &with(
-            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nGroup: Languages",
-            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nGroup: Langauges",
+            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nTag: shell\nTag: cli\nGroup: Languages",
+            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nTag: shell\nTag: cli\nGroup: Langauges",
         ),
         "Group \"Langauges\" names no Group",
     );

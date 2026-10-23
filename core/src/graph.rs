@@ -61,6 +61,8 @@ pub struct Settings {
     pub label: Vec<String>,
     pub color: Option<String>,
     pub filter: Option<String>,
+    /// `%graph: tag Tag`: a repeated field of free labels.
+    pub tag: Option<String>,
     pub shape: Option<(String, HashMap<String, String>)>,
     pub style: Option<(String, HashMap<String, String>)>,
     pub rules: Vec<Rule>,
@@ -78,6 +80,7 @@ impl Default for Settings {
             label: vec!["Name".into()],
             color: None,
             filter: None,
+            tag: None,
             shape: None,
             style: None,
             rules: Vec::new(),
@@ -114,6 +117,7 @@ impl Settings {
                     (NODE, "pos", [f]) => s.pos = f.clone(),
                     (NODE, "label", fields) if !fields.is_empty() => s.label = fields.to_vec(),
                     (NODE, "color", [f]) => s.color = Some(f.clone()),
+                    (NODE, "tag", [f]) => s.tag = Some(f.clone()),
                     (NODE, "filter", [f]) => match t.types.get(f) {
                         Some(Type::Enum(_)) => s.filter = Some(f.clone()),
                         _ => problem(

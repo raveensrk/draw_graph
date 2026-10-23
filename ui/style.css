@@ -36,3 +36,10 @@ li.link:hover, li.link.on { background: var(--line); }
 #help td { padding: 3px 10px 3px 0; vertical-align: top; }
 #help td:first-child { white-space: nowrap; color: var(--accent); font-family: ui-monospace, Menlo, monospace; }
 kbd { font-family: ui-monospace, Menlo, monospace; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; margin: 4px 0 8px; }
+.chip { display: inline-flex; align-items: center; gap: 2px; border: 1px solid var(--line); border-radius: 12px; padding: 1px 4px 1px 10px; }
+.chip-name { cursor: pointer; }
+.chip button { font: inherit; color: var(--muted); background: none; border: 0; cursor: pointer; padding: 0 4px; }
+.chip button:hover { color: var(--bad); }
+.tag-add { margin-bottom: 8px; }
+ul.tags li { display: flex; justify-content: space-between; }

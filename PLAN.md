@@ -141,6 +141,22 @@ ELK: each leaf its own row, each parent centred on its children, elbow
 edges. Groups are not drawn as boxes in a tree, since one node can show in
 several places.
 
+### Tags
+
+`%graph: tag Tag` names a repeated field of free labels, one `Tag:` line
+each. The side panel shows a node's tags as chips (× removes, the field adds
+on Enter), and with nothing focused lists every tag with its count; a click
+filters the graph to the nodes with that tag, their boxes and the edges
+between them (click again or Esc to clear). `%graph: color` on a field with
+no order, like Tag, colours by the first value. agent1's dev_tools.rec moved
+from Level, Tier, Category and Subcategory to tags on 2026-10-24.
+
+### Folding a branch
+
+In the graph view `za` on a node hides everything downstream of it, shown
+as "Python ▸ 9"; a node another open path still reaches stays. Memory only,
+like a quick tree. `zR` unfolds them.
+
 ### Group boxes
 
 A group is a box; boxes nest through `Parent`. `Collapsed: yes` on a Group
@@ -171,7 +187,7 @@ mapping. Dark theme by default.
 Vim keys on the canvas. The help page (`?`) lists them from the same table
 the code uses (`KEYS` in `ui/src/main.rs`). Shipped in step 2:
 
-`h j k l` move, `e` step through edges, `Enter`/`i` edit in the panel,
+`h j k l` or the arrow keys move, `e` step through edges, `Enter`/`i` edit in the panel,
 `Esc` back, `o`/`O` add after/before, `a` add alone, `c` connect, `dd`
 delete, `u`/`Ctrl-r` undo/redo, `/` `n` `N` search, `L` next layout (or
 leave a tree), `s` save positions, `f` fit, `?` help.

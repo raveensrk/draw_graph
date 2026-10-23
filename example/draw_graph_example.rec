@@ -72,13 +72,14 @@ Color: #1f5f46
 %type: Shape enum box round diamond ellipse
 %type: Pos regexp /^-?[0-9]+ -?[0-9]+$/
 %mandatory: Name Kind
-%allowed: Name Label Kind Level Tier Status Group Color Shape Url Note Pos
+%allowed: Name Label Kind Level Tier Status Tag Group Color Shape Url Note Pos
 %graph: label Label Name
 %graph: color Level
 %graph: shape Kind tool=round task=box step=box decision=diamond start=ellipse end=ellipse idea=round concept=round
 %graph: pos Pos
 %graph: group Group
 %graph: filter Tier
+%graph: tag Tag
 
 # Learning path: tools, with how hard each is (Level) and how much it matters (Tier).
 
@@ -86,6 +87,8 @@ Name: Bash
 Kind: tool
 Level: 1
 Tier: base
+Tag: shell
+Tag: cli
 Group: Languages
 Note: Also stands for shell scripting.
 Pos: 0 0
@@ -94,6 +97,7 @@ Name: HTML
 Kind: tool
 Level: 1
 Tier: base
+Tag: web
 Group: Languages
 Pos: 0 120
 
@@ -101,6 +105,7 @@ Name: CSS
 Kind: tool
 Level: 2
 Tier: base
+Tag: web
 Group: Languages
 Pos: 200 160
 
@@ -108,6 +113,8 @@ Name: JavaScript
 Kind: tool
 Level: 2
 Tier: base
+Tag: web
+Tag: language
 Group: Languages
 Pos: 200 80
 
@@ -115,6 +122,8 @@ Name: TypeScript
 Kind: tool
 Level: 3
 Tier: base
+Tag: web
+Tag: language
 Group: Languages
 Url: https://www.typescriptlang.org
 Pos: 400 80
@@ -123,6 +132,8 @@ Name: Rust
 Kind: tool
 Level: 4
 Tier: base
+Tag: systems
+Tag: language
 Group: Languages
 Url: https://www.rust-lang.org
 Note: The hard one. Ownership and lifetimes take weeks.

@@ -123,8 +123,11 @@ fn run(doc: &mut Doc, edit: &Edit) -> Result<(), String> {
         } => {
             let n = find(doc, kind, &key(kind), name)?;
             doc.remove(n, field, None);
-            for v in values {
-                doc.add(n, field, v);
+            if let Some((first, rest)) = values.split_first() {
+                doc.set_ordered(n, field, first, &order(kind));
+                for v in rest {
+                    doc.add(n, field, v);
+                }
             }
             Ok(())
         }
@@ -406,7 +409,7 @@ mod tests {
         )
         .unwrap();
         assert!(text.contains(
-            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nGroup: Languages\nNote: Also stands for shell scripting.\nPos: 5 -7\n"
+            "Name: Bash\nKind: tool\nLevel: 1\nTier: base\nTag: shell\nTag: cli\nGroup: Languages\nNote: Also stands for shell scripting.\nPos: 5 -7\n"
         ));
     }
 
@@ -457,6 +460,25 @@ mod tests {
             text.contains("Edges: branch relates\nCollapse: Flowcharts\n\nName: Everything"),
             "both old folds go, the new one stays in place"
         );
+    }
+
+    #[test]
+    fn set_list_puts_new_tags_in_schema_order() {
+        let edit = Edit::SetList {
+            kind: "Node".into(),
+            key: "Tauri".into(),
+            field: "Tag".into(),
+            values: vec!["desktop".into(), "rust".into()],
+        };
+        let text = apply(EXAMPLE, &edit).unwrap();
+        assert!(text.contains("Name: Tauri\nKind: tool\nLevel: 4\nTier: base\nTag: desktop\nTag: rust\nGroup: Frameworks\n"));
+        let gone = Edit::SetList {
+            kind: "Node".into(),
+            key: "Bash".into(),
+            field: "Tag".into(),
+            values: vec![],
+        };
+        assert!(!apply(EXAMPLE, &gone).unwrap().contains("Tag: shell"));
     }
 
     #[test]

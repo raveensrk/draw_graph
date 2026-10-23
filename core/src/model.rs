@@ -28,6 +28,11 @@ pub struct NodeView {
     pub pos: Option<(i64, i64)>,
     pub color: String,
     pub shape: String,
+    /// The node's tags (`%graph: tag F`), in file order.
+    pub tags: Vec<String>,
+    /// Nodes hidden below this one by a branch fold; set by branches().
+    #[serde(default)]
+    pub hidden: usize,
     /// Every field, in file order, for the side panel.
     pub fields: Vec<(String, String)>,
 }
@@ -97,6 +102,8 @@ pub struct Names {
     pub from: String,
     pub to: String,
     pub any: String,
+    /// The tag field, when the file has one.
+    pub tag: Option<String>,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Default)]
@@ -111,6 +118,8 @@ pub struct Model {
     /// The edge kind field and its values, for new edges and the legend.
     pub edge_kinds: Option<(String, Vec<String>)>,
     pub views: Vec<SavedView>,
+    /// Every tag and how many nodes carry it, commonest first.
+    pub tags: Vec<(String, usize)>,
     pub problems: Vec<Problem>,
 }
 
@@ -139,7 +148,19 @@ pub fn model(text: &str) -> Model {
     let key = |kind: &str| schema.get(kind).and_then(|t| t.key.clone()).unwrap_or_else(|| "Name".to_string());
     let node_type = schema.get(NODE);
 
-    let nodes = of(NODE)
+    // A colour field without an order (tags, words) colours by first value,
+    // each distinct value its own palette colour, in the order they appear.
+    let firsts: Vec<String> = s.color.as_ref().map_or_else(Vec::new, |f| {
+        let mut seen: Vec<String> = Vec::new();
+        for v in of(NODE).iter().filter_map(|r| r.get(f)) {
+            if !seen.iter().any(|x| x == v) {
+                seen.push(v.to_string());
+            }
+        }
+        seen
+    });
+
+    let nodes: Vec<NodeView> = of(NODE)
         .into_iter()
         .filter_map(|r| {
             let name = r.get(&key(NODE))?.to_string();
@@ -152,8 +173,13 @@ pub fn model(text: &str) -> Model {
                 label,
                 group: r.get(&s.group).map(str::to_string),
                 pos,
-                color: r.get("Color").map(str::to_string).unwrap_or_else(|| color(r, &s, node_type)),
+                color: r
+                    .get("Color")
+                    .map(str::to_string)
+                    .unwrap_or_else(|| color(r, &s, node_type, &firsts)),
                 shape: r.get("Shape").map(str::to_string).unwrap_or_else(|| shape(r, &s)),
+                tags: s.tag.as_ref().map(|f| r.all(f).map(str::to_string).collect()).unwrap_or_default(),
+                hidden: 0,
                 fields: pairs(r),
                 name,
             })
@@ -224,8 +250,18 @@ pub fn model(text: &str) -> Model {
         })
         .collect();
 
+    let mut tags: Vec<(String, usize)> = Vec::new();
+    for t in nodes.iter().flat_map(|n| &n.tags) {
+        match tags.iter_mut().find(|(x, _)| x == t) {
+            Some((_, n)) => *n += 1,
+            None => tags.push((t.clone(), 1)),
+        }
+    }
+    tags.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+
     Model {
         views,
+        tags,
         names: Names {
             node_key: key(NODE),
             group_key: key(GROUP),
@@ -234,6 +270,7 @@ pub fn model(text: &str) -> Model {
             from: s.from.clone(),
             to: s.to.clone(),
             any: s.any.clone(),
+            tag: s.tag.clone(),
         },
         nodes,
         groups,
@@ -250,11 +287,14 @@ fn pairs(r: &Record) -> Vec<(String, String)> {
     r.fields().map(|f| (f.name.clone(), f.value.clone())).collect()
 }
 
-/// Colour from the `%graph: color F` field's rank: L1 green, L2 blue, ...
-fn color(r: &Record, s: &Settings, t: Option<&RecType>) -> String {
+/// Colour from the `%graph: color F` field: by rank when F is ordered (L1
+/// green, L2 blue, ...), else by the first value's place among `firsts`.
+fn color(r: &Record, s: &Settings, t: Option<&RecType>, firsts: &[String]) -> String {
     let rank = s.color.as_ref().and_then(|f| {
-        let ty = t?.types.get(f)?;
         let v = r.get(f)?;
+        let Some(ty) = t.and_then(|t| t.types.get(f)).filter(|ty| ty.rank(v).is_some()) else {
+            return firsts.iter().position(|x| x == v);
+        };
         let low = match ty {
             Type::Range(lo, _) => *lo as f64,
             _ => 0.0,
@@ -379,6 +419,76 @@ pub fn folded(m: &Model) -> Model {
     out
 }
 
+/// The graph with some branches folded: each folded node keeps its place
+/// and hides what lies downstream of it, shown as "Python ▸ 9".
+///
+///   Bash ─> Python ─> JSON ─> jq       fold Python: JSON, jq and SQL go,
+///             └────> SQL               unless another path still reaches them
+///
+/// A node stays when an edge reaches it from a node that is shown and not
+/// folded, so folding one parent never hides what a second parent unlocks.
+pub fn branches(m: &Model, folds: &[String]) -> Model {
+    let folded = |n: &str| folds.iter().any(|f| f == n);
+
+    // Everything downstream of a fold, the folded nodes themselves excepted.
+    let mut below: HashSet<String> = HashSet::new();
+    let mut todo: Vec<String> = folds.to_vec();
+    while let Some(at) = todo.pop() {
+        for e in m.edges.iter().filter(|e| e.from == at) {
+            if !folded(&e.to) && below.insert(e.to.clone()) {
+                todo.push(e.to.clone());
+            }
+        }
+    }
+
+    // Bring back what an open, shown node still reaches, until nothing moves.
+    loop {
+        let back: Vec<String> = below
+            .iter()
+            .filter(|n| m.edges.iter().any(|e| &e.to == *n && !below.contains(&e.from) && !folded(&e.from)))
+            .cloned()
+            .collect();
+        if back.is_empty() {
+            break;
+        }
+        for n in back {
+            below.remove(&n);
+        }
+    }
+
+    let mut out = m.clone();
+    for n in out.nodes.iter_mut().filter(|n| folded(&n.name)) {
+        // Count what this fold hides: hidden nodes downstream of it.
+        let mut seen: HashSet<String> = HashSet::new();
+        let mut todo = vec![n.name.clone()];
+        while let Some(at) = todo.pop() {
+            for e in m.edges.iter().filter(|e| e.from == at && below.contains(&e.to)) {
+                if seen.insert(e.to.clone()) {
+                    todo.push(e.to.clone());
+                }
+            }
+        }
+        n.hidden = seen.len();
+    }
+    out.nodes.retain(|n| !below.contains(&n.name));
+    out.edges.retain(|e| !below.contains(&e.from) && !below.contains(&e.to));
+
+    // A box left with nothing in it goes too.
+    let mut keep: HashSet<String> = out.nodes.iter().filter_map(|n| n.group.clone()).collect();
+    keep.extend(out.groups.iter().filter(|g| g.collapsed).map(|g| g.name.clone()));
+    for _ in 0..=m.groups.len() {
+        let up: Vec<String> = out
+            .groups
+            .iter()
+            .filter(|g| keep.contains(&g.name))
+            .filter_map(|g| g.parent.clone())
+            .collect();
+        keep.extend(up);
+    }
+    out.groups.retain(|g| keep.contains(&g.name));
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -420,6 +530,47 @@ mod tests {
                 .find(|v| v.name == "What Tree view needs")
                 .is_some_and(|v| v.follow_in && v.full)
         );
+    }
+
+    #[test]
+    fn a_folded_branch_hides_what_only_it_reaches() {
+        let m = model(EXAMPLE);
+
+        // Cytoscape.js is the only way in to ELK.js, Vim keymap and SVG
+        // export, and Tree view needs only those: all four go.
+        let f = branches(&m, &["Cytoscape.js".to_string()]);
+        let shown = |n: &str| f.nodes.iter().any(|x| x.name == n);
+        assert!(shown("Cytoscape.js") && !shown("ELK.js") && !shown("SVG export") && !shown("Vim keymap"));
+        assert!(shown("JavaScript") && shown("TypeScript"), "upstream stays");
+        assert!(shown("Release builds"), "CLI check and File watcher still reach it");
+        let cy = f.nodes.iter().find(|n| n.name == "Cytoscape.js").unwrap();
+        assert_eq!(cy.hidden, 4, "ELK.js, Vim keymap, Tree view, SVG export");
+        assert!(f.edges.iter().all(|e| e.from != "ELK.js" && e.to != "ELK.js"));
+
+        // Everything Rust unlocks has another way in: Tauri through
+        // TypeScript and JavaScript, rec parser through recutils.
+        let f = branches(&m, &["Rust".to_string()]);
+        assert!(f.nodes.iter().any(|x| x.name == "Tauri") && f.nodes.iter().any(|x| x.name == "rec parser"));
+        assert_eq!(f.nodes.iter().find(|n| n.name == "Rust").unwrap().hidden, 0);
+    }
+
+    #[test]
+    fn tags_are_listed_with_counts() {
+        let m = model(EXAMPLE);
+        let bash = m.nodes.iter().find(|n| n.name == "Bash").unwrap();
+        assert_eq!(bash.tags, vec!["shell", "cli"]);
+        assert_eq!(&m.tags[..2], &[("web".to_string(), 4), ("language".to_string(), 3)]);
+        assert_eq!(m.names.tag.as_deref(), Some("Tag"));
+    }
+
+    #[test]
+    fn an_unordered_colour_field_colours_by_first_value() {
+        let text = EXAMPLE.replace("%graph: color Level\n", "%graph: color Tag\n");
+        let m = model(&text);
+        let colour = |name: &str| m.nodes.iter().find(|n| n.name == name).unwrap().color.clone();
+        assert_eq!(colour("HTML"), colour("CSS"), "both start with web");
+        assert_ne!(colour("Bash"), colour("HTML"));
+        assert_eq!(colour("Tauri"), PLAIN, "no tag, no colour");
     }
 
     #[test]
