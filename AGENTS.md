@@ -15,6 +15,7 @@ draw_graph: a Tauri desktop app that edits a recfile as a graph.
 | Path | Holds |
 |---|---|
 | `PLAN.md` | Spec, decisions, build order |
+| `task/` | Open work, one file per task; written only by `task-router` (`task-router list --dir ~/repos/draw_graph/task`) |
 | `example/` | Sample recfiles |
 | `core/` | The shared library (also built for wasm): `rec.rs` text, `schema.rs` descriptors, `graph.rs` %graph rules, `check.rs` every check, `edit.rs` edits behind the check, `model.rs` what the UI draws |
 | `core/tests/check.rs` | One test per problem: break the example once, expect that problem |
