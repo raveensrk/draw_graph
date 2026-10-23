@@ -313,6 +313,14 @@ fn edge(app: &mut App, ui: &mut egui::Ui, index: usize) {
     let inputs = app.full.edge_form.clone();
     let save = move |field: String, value: String| Some((Edit::SetEdge { index, field, value }, None));
     form(app, ui, &format!("e:{index}"), &inputs, &e.fields, None, &save);
+    if ui
+        .button("Delete edge")
+        .on_hover_text("dd on the canvas does the same; u brings it back")
+        .clicked()
+    {
+        app.outbox.push((Edit::DeleteEdge { index }, None));
+        app.selected = None;
+    }
     // Each end in its own pane: what it is, its tags and note.
     for (title, name) in [("FROM · the prerequisite end", &e.from), ("TO · the end it leads to", &e.to)] {
         ui.add_space(6.0);

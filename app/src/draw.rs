@@ -62,6 +62,26 @@ impl Geometry {
     }
 }
 
+/// The edge whose line passes within `tolerance` of a point, the closest
+/// one; for clicks that land on no node.
+pub fn hit_edge(scene: &Scene, g: &Geometry, p: Pos2, tolerance: f32) -> Option<String> {
+    let near = |a: Pos2, b: Pos2| {
+        let ab = b - a;
+        let t = ((p - a).dot(ab) / ab.length_sq().max(1e-6)).clamp(0.0, 1.0);
+        (a + ab * t).distance(p)
+    };
+    scene
+        .edges
+        .iter()
+        .filter_map(|e| {
+            let pts = route(e, g.rect(&e.from)?, g.rect(&e.to)?);
+            let d = pts.windows(2).map(|w| near(w[0], w[1])).fold(f32::MAX, f32::min);
+            (d <= tolerance).then(|| (e.id.clone(), d))
+        })
+        .min_by(|a, b| a.1.total_cmp(&b.1))
+        .map(|(id, _)| id)
+}
+
 /// The text a measure takes: `(text, font size)` gives its size at zoom 1.
 pub type Measure<'a> = dyn Fn(&str, f32) -> Vec2 + 'a;
 
@@ -189,8 +209,17 @@ pub fn paint(painter: &Painter, scene: &Scene, g: &Geometry, marks: &Marks) {
             continue;
         };
         let pts = route(e, a, b);
-        let on = marks.selected.is_some_and(|s| s == e.id || s == e.from || s == e.to);
-        let stroke = Stroke::new(if on { 2.0 } else { 1.2 }, if on { ACCENT } else { MUTED });
+        // The selected edge is thickest; edges of the selected node are gold.
+        let picked = marks.selected == Some(e.id.as_str());
+        let on = picked || marks.selected.is_some_and(|s| s == e.from || s == e.to);
+        let width = if picked {
+            4.0
+        } else if on {
+            2.0
+        } else {
+            1.2
+        };
+        let stroke = Stroke::new(width, if on { ACCENT } else { MUTED });
         match e.style.as_str() {
             "dashed" => drop(painter.add(Shape::Vec(Shape::dashed_line(&pts, stroke, 6.0 * z, 5.0 * z)))),
             "dotted" => drop(painter.add(Shape::Vec(Shape::dashed_line(&pts, stroke, 1.5 * z, 4.0 * z)))),
@@ -243,7 +272,11 @@ pub fn paint(painter: &Painter, scene: &Scene, g: &Geometry, marks: &Marks) {
         if marks.hits.contains(&n.id) {
             painter.rect_stroke(r, RADIUS * z, Stroke::new(2.0, WARN), StrokeKind::Outside);
         }
-        if marks.selected == Some(n.id.as_str()) {
+        // The selected node, or both ends of the selected edge.
+        let end = marks
+            .selected
+            .is_some_and(|s| scene.edges.iter().any(|e| e.id == s && (e.from == n.id || e.to == n.id)));
+        if marks.selected == Some(n.id.as_str()) || end {
             painter.rect_stroke(r, RADIUS * z, Stroke::new(3.0, ACCENT), StrokeKind::Outside);
         }
         match &n.note {
@@ -430,4 +463,46 @@ pub fn svg(ctx: &egui::Context, scene: &Scene) -> String {
     }
     out.push_str("</svg>\n");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::scene::{Edge, Node, Scene};
+
+    fn node(id: &str, x: f32) -> Node {
+        Node {
+            id: id.into(),
+            name: id.into(),
+            label: id.into(),
+            fill: "#123456".into(),
+            shape: "round".into(),
+            x,
+            y: 0.0,
+            dashed: false,
+            note: None,
+        }
+    }
+
+    #[test]
+    fn a_click_near_an_edge_picks_it() {
+        // a ──> b, 300 units apart; 10x10 labels at zoom 1.
+        let scene = Scene {
+            nodes: vec![node("n:a", 0.0), node("n:b", 300.0)],
+            boxes: Vec::new(),
+            edges: vec![Edge {
+                id: "e:0".into(),
+                from: "n:a".into(),
+                to: "n:b".into(),
+                style: "solid".into(),
+                label: None,
+                elbow: false,
+                note: None,
+            }],
+        };
+        let g = geometry(&scene, &|_, _| Vec2::splat(10.0), &|p| p, 1.0);
+        assert_eq!(hit_edge(&scene, &g, Pos2::new(150.0, 4.0), 6.0).as_deref(), Some("e:0"));
+        assert_eq!(hit_edge(&scene, &g, Pos2::new(150.0, 20.0), 6.0), None, "too far from the line");
+        assert_eq!(g.hit(Pos2::new(0.0, 0.0)).as_deref(), Some("n:a"), "a node under the click wins");
+    }
 }

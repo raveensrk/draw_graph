@@ -32,6 +32,9 @@ const FOLLOW_ZOOM: f32 = 1.3;
 const GLIDE: f32 = 0.25;
 const ZOOM_RANGE: (f32, f32) = (0.05, 4.0);
 
+/// How close a click must land to an edge's line to pick it, in px.
+const EDGE_PICK: f32 = 6.0;
+
 /// Room between a node and one added next to it, in graph units.
 const STEP: Vec2 = Vec2::new(220.0, 70.0);
 
@@ -50,6 +53,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("a", "add a node with no edges"),
     ("c", "connect: an edge from the selection to another node"),
     ("G", "put the selected node in a new group inside its current one"),
+    ("click an edge", "select it; its ends light up"),
     ("dd", "delete the selected node (and its edges), edge or box (not its members)"),
     ("u, Ctrl-r", "undo, redo"),
     ("/, n, N", "search names, labels, tags and boxes (smartcase); next, previous"),
@@ -1056,9 +1060,28 @@ impl App {
         let at = self.selected.clone().unwrap_or_default();
         let next = ids.iter().position(|i| *i == at).map_or(0, |p| (p + 1) % ids.len().max(1));
         match ids.get(next) {
-            Some(id) => self.selected = Some(id.clone()),
+            Some(id) => {
+                self.selected = Some(id.clone());
+                let index = id[2..].parse().unwrap_or(usize::MAX);
+                self.msg = format!(
+                    "edge {} of {}: {} (e for the next, dd deletes it)",
+                    next + 1,
+                    ids.len(),
+                    self.edge_line(index)
+                );
+            }
             None => self.msg = format!("{a} has no edges"),
         }
+    }
+
+    /// `Bash → Git`, for messages about an edge.
+    fn edge_line(&self, index: usize) -> String {
+        self.full
+            .edges
+            .iter()
+            .find(|e| e.index == index)
+            .map(|e| format!("{} → {}", e.from, e.to))
+            .unwrap_or_default()
     }
 
     fn next_hit(&mut self, forward: bool) {
@@ -1155,7 +1178,25 @@ impl App {
             && let Some(p) = resp.interact_pointer_pos()
         {
             self.via = None;
-            let hit = self.geo.hit(p);
+            let hit = self.geo.hit(p).or_else(|| draw::hit_edge(&self.scene, &self.geo, p, EDGE_PICK));
+
+            // A tree's edge stands for the file's edge it was drawn from.
+            let hit = match hit {
+                Some(h) if h.starts_with("te:") => self
+                    .items
+                    .iter()
+                    .find(|i| i.id == h[3..])
+                    .and_then(|i| i.edge.as_ref())
+                    .map(|(index, _, _)| format!("e:{index}")),
+                other => other,
+            };
+            if let Some(i) = hit
+                .as_ref()
+                .and_then(|h| h.strip_prefix("e:"))
+                .and_then(|i| i.parse::<usize>().ok())
+            {
+                self.msg = self.edge_line(i);
+            }
             self.select(hit);
         }
         if self.follow
