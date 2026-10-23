@@ -1,7 +1,7 @@
 ---
 id: "zwwxj9d4kb"
 title: "Port draw_graph to egui"
-state: "in_progress"
+state: "done"
 due: ""
 priority: ""
 tag: ["feature", "draw_graph"]
@@ -9,8 +9,7 @@ repeat: ""
 effort: ""
 postpone: 0
 created: "2026-10-24"
-closed: ""
-started: "2026-10-24T01:24"
+closed: "2026-10-24T01:49"
 ---
 
 Port draw_graph to egui and retire the Tauri + Leptos + Cytoscape app. Decided on 2026-10-24 after the prototype (task "Prototype an egui version of the app").
@@ -26,3 +25,7 @@ Port draw_graph to egui and retire the Tauri + Leptos + Cytoscape app. Decided o
 
 - `draw_graph ~/repos/agent1/dev_tools.rec` opens the egui app with every feature the Tauri app had.
 - `draw_graph check` unchanged; core tests pass; CI green; a v* tag builds the Mac `.dmg`.
+
+## Log
+
+- done 2026-10-24 01:49: egui is the draw_graph binary (ee0958f, 46a460d): Tauri, Leptos and Cytoscape removed; 63 tests and clippy clean locally; installed via script/bundle_macos.sh --install; CI not awaited
