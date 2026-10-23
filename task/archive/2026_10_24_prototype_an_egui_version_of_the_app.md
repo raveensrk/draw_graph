@@ -1,7 +1,7 @@
 ---
 id: "kecc5m52tt"
 title: "Prototype an egui version of the app"
-state: "in_progress"
+state: "done"
 due: ""
 priority: ""
 tag: ["feature", "draw_graph"]
@@ -9,8 +9,7 @@ repeat: ""
 effort: ""
 postpone: 0
 created: "2026-10-24"
-closed: ""
-started: "2026-10-24T01:16"
+closed: "2026-10-24T01:24"
 ---
 
 Try egui (eframe) as the UI instead of Tauri + Leptos + Cytoscape.js. Suggested on 2026-10-24: with only the manual and tree layouts kept, ELK is not needed, and every rule already lives in the pure-Rust `core` crate.
@@ -55,3 +54,7 @@ Measured (release builds, same file open):
 Missing in the prototype: editing (form, tag chips, add, connect, delete, undo), tree view, saved views, the tag filter, search, SVG export, `.app` bundle. egui's built-in fonts lack ▸ and arrows, so it shows `+70` and `->`; a bundled font would fix that.
 
 Decision: the user's.
+
+## Log
+
+- done 2026-10-24 01:24: egui/ prototype (7eb708e): draws, moves, folds, follows, reloads; measured against Tauri; user chose to switch
