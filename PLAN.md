@@ -4,9 +4,9 @@ A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
-Status: steps 1 to 3 of the build order done (2026-10-23): the recfile
+Status: steps 1 to 4 of the build order done (2026-10-23): the recfile
 library, `draw_graph check`, the window with canvas, vim keys, side panel
-and live reload, and the folding tree view. The reference document is
+and live reload, the folding tree view, folding group boxes and SVG export. The reference document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
@@ -141,6 +141,25 @@ ELK: each leaf its own row, each parent centred on its children, elbow
 edges. Groups are not drawn as boxes in a tree, since one node can show in
 several places.
 
+### Group boxes
+
+A group is a box; boxes nest through `Parent`. `Collapsed: yes` on a Group
+record draws it as one node, "Name ▸ N" for the N nodes inside, placed at
+the middle of their `Pos`. Edges to hidden members meet the box instead,
+merged when several land on the same pair. Inside nested folds the outermost
+collapsed box stands for all. In the graph view `za` folds the focused box,
+`zR`/`zM` every box; the field is written like any edit.
+
+`G` puts the focused node in a new group nested in its current one. `dd` on
+a box deletes the box, not what is in it: members and child boxes move up to
+its parent, edges onto the box go with it.
+
+### SVG export
+
+`E` writes what is on screen to `FILE.svg` next to `FILE.rec`: dark
+background, boxes, edges (bezier, elbow, dashed, dotted) with labels,
+nodes in their shapes. draw_graph writes the SVG itself, no export library.
+
 ### Styling
 
 Colours and shapes come from fields (`%graph: color Level`,
@@ -182,7 +201,7 @@ calls it once `dev_tools.py` is retired.
 2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form,
    live reload. Done 2026-10-23.
 3. Tree view: root, follow, fold, `Repeat`. Done 2026-10-23.
-4. Nested groups and SVG export.
+4. Nested groups and SVG export. Done 2026-10-23.
 5. Convert agent1's `dev_tools.rec` to Edge records; retire `dev_tools.py`
    (its editor, charts and checks).
 6. CI release builds.
@@ -194,6 +213,15 @@ calls it once `dev_tools.py` is retired.
 - **ELK `tree` layout and boxes.** The graph layout named `tree` (ELK's
   `mrtree`) lets group boxes overlap. The tree view has its own layout;
   the ELK one may go.
+- **Headless export.** SVG export needs the window, since the layout lives in
+  Cytoscape. agent1's charts are checked headless by `dev_tools.py
+  --check`; step 5 must keep them generated without a window (a Rust
+  exporter from saved `Pos`), or drop them.
+- **A Cytoscape redraw bug.** Swapping elements once threw inside
+  Cytoscape's renderer after a box was removed while focused; headless
+  Cytoscape did not reproduce it. Redraws now remove whole top-level
+  elements, and a failed swap rebuilds the canvas (logged as `ui_error`).
+- **`width: label` is deprecated** in Cytoscape 3.30; it still works.
 - **View `Filter` is not applied.** `V` shows a view's layout, root and
   edge kinds, and says when its `Filter` expression is skipped.
 - **Trunk pinned to 0.21.** Trunk 0.22 needs rustc 1.96.1; this machine has

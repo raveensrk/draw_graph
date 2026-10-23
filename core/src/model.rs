@@ -5,6 +5,8 @@
 //!
 //! The UI keeps no rules of its own; everything it shows comes from here.
 
+use std::collections::{HashMap, HashSet};
+
 use serde::{Deserialize, Serialize};
 
 use crate::check::{Problem, check};
@@ -36,6 +38,12 @@ pub struct GroupView {
     pub label: String,
     pub parent: Option<String>,
     pub color: Option<String>,
+    /// `Collapsed: yes`: drawn as one node, its members hidden.
+    pub collapsed: bool,
+    /// Nodes hidden inside, at any depth; set by folded().
+    pub hidden: usize,
+    /// Where a folded box sits: the middle of its hidden members' Pos.
+    pub pos: Option<(i64, i64)>,
     pub fields: Vec<(String, String)>,
 }
 
@@ -160,6 +168,9 @@ pub fn model(text: &str) -> Model {
                 label: r.get("Label").unwrap_or(&name).to_string(),
                 parent: r.get(&s.parent).map(str::to_string),
                 color: r.get("Color").map(str::to_string),
+                collapsed: r.get("Collapsed") == Some("yes"),
+                hidden: 0,
+                pos: None,
                 fields: pairs(r),
                 name,
             })
@@ -291,6 +302,83 @@ fn form(t: Option<&RecType>) -> Vec<Input> {
         .collect()
 }
 
+/// The model as the graph view draws it: a collapsed group becomes one
+/// node, everything inside it is hidden, and edges to hidden nodes meet the
+/// group instead.
+///
+///   [Backend ▸ 4] ──> Release builds      Backend folded: the edges from its
+///                                          four members merge into one
+///
+/// Inside nested folds the outermost collapsed group stands for all.
+pub fn folded(m: &Model) -> Model {
+    let parent = |g: &str| m.groups.iter().find(|x| x.name == g).and_then(|x| x.parent.clone());
+    let collapsed = |g: &str| m.groups.iter().any(|x| x.name == g && x.collapsed);
+
+    // The outermost collapsed group around a group (itself included).
+    let cover = |g: &str| -> Option<String> {
+        let mut at = Some(g.to_string());
+        let mut out = None;
+        for _ in 0..=m.groups.len() {
+            let Some(x) = at else { break };
+            if collapsed(&x) {
+                out = Some(x.clone());
+            }
+            at = parent(&x); // bounded: a Parent loop stops here, check reports it
+        }
+        out
+    };
+
+    // Where each hidden name now shows: node or inner group -> its cover.
+    let mut stand: HashMap<String, String> = HashMap::new();
+    for n in &m.nodes {
+        if let Some(c) = n.group.as_deref().and_then(cover) {
+            stand.insert(n.name.clone(), c);
+        }
+    }
+    for g in &m.groups {
+        if let Some(c) = g.parent.as_deref().and_then(cover) {
+            stand.insert(g.name.clone(), c);
+        }
+    }
+
+    let mut out = m.clone();
+    out.nodes.retain(|n| !stand.contains_key(&n.name));
+    out.groups.retain(|g| !stand.contains_key(&g.name));
+    for g in out.groups.iter_mut().filter(|g| g.collapsed) {
+        let inside: Vec<&NodeView> = m.nodes.iter().filter(|n| stand.get(&n.name) == Some(&g.name)).collect();
+        g.hidden = inside.len();
+        let placed: Vec<(i64, i64)> = inside.iter().filter_map(|n| n.pos).collect();
+        if !placed.is_empty() {
+            let len = placed.len() as i64;
+            g.pos = Some((
+                placed.iter().map(|p| p.0).sum::<i64>() / len,
+                placed.iter().map(|p| p.1).sum::<i64>() / len,
+            ));
+        }
+    }
+
+    let at = |name: &str| stand.get(name).cloned().unwrap_or_else(|| name.to_string());
+    let mut seen = HashSet::new();
+    out.edges = m
+        .edges
+        .iter()
+        .filter_map(|e| {
+            let (from, to) = (at(&e.from), at(&e.to));
+            if from == to || !seen.insert((from.clone(), to.clone(), e.style.clone())) {
+                return None; // inside one fold, or merged into an edge already drawn
+            }
+            let merged = from != e.from || to != e.to;
+            Some(EdgeView {
+                from,
+                to,
+                label: if merged { None } else { e.label.clone() },
+                ..e.clone()
+            })
+        })
+        .collect();
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -331,6 +419,33 @@ mod tests {
                 .iter()
                 .find(|v| v.name == "What Tree view needs")
                 .is_some_and(|v| v.follow_in && v.full)
+        );
+    }
+
+    #[test]
+    fn folded_groups_stand_for_their_members() {
+        // Canvas is collapsed in the example: its 3 tasks fold into it.
+        let m = model(EXAMPLE);
+        let f = folded(&m);
+        let canvas = f.groups.iter().find(|g| g.name == "Canvas").unwrap();
+        assert_eq!(canvas.hidden, 3);
+        assert_eq!(canvas.pos, Some((1133, 233)), "the middle of Vim keymap, Tree view and SVG export");
+        assert!(!f.nodes.iter().any(|n| n.group.as_deref() == Some("Canvas")));
+        assert!(
+            f.edges.iter().any(|e| e.from == "Canvas" && e.to == "Release builds"),
+            "Tree view -> Release builds now leaves the box"
+        );
+        assert!(f.edges.iter().all(|e| e.from != "Tree view" && e.to != "Vim keymap"));
+
+        // Folding the outer box hides the inner one too.
+        let mut m2 = m.clone();
+        m2.groups.iter_mut().find(|g| g.name == "App").unwrap().collapsed = true;
+        let f2 = folded(&m2);
+        assert!(!f2.groups.iter().any(|g| g.name == "Canvas" || g.name == "Backend"));
+        assert_eq!(
+            f2.groups.iter().find(|g| g.name == "App").unwrap().hidden,
+            8,
+            "4 Backend tasks, 3 Canvas tasks, Release builds"
         );
     }
 }

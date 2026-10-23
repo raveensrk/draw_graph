@@ -16,7 +16,7 @@
 
 use draw_graph_core::check::Problem;
 use draw_graph_core::edit::Edit;
-use draw_graph_core::model::{Input, Model, model};
+use draw_graph_core::model::{Input, Model, folded, model};
 use draw_graph_core::tree::{Item, Spec, common_kind, tree as walk};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
@@ -48,6 +48,8 @@ extern "C" {
     fn canvas_fit();
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = renderTree)]
     fn canvas_render_tree(items: &str, refit: bool);
+    #[wasm_bindgen(js_namespace = dgCanvas, js_name = exportSvg)]
+    fn canvas_export_svg() -> String;
 }
 
 /// Layouts, in the order `L` steps through them.
@@ -77,8 +79,16 @@ const KEYS: &[(&str, &str)] = &[
     ("t, T", "tree from the focused node: what it unlocks, what it needs"),
     ("V", "next saved view (the file's View records)"),
     (";", "next edge kind to follow or show; then back to all"),
-    ("za", "fold or unfold the focused branch; on a repeat, open that copy"),
-    ("zR, zM", "unfold everything, fold everything"),
+    (
+        "za",
+        "fold or unfold: a branch in a tree (a repeat opens that copy), a group box in the graph",
+    ),
+    (
+        "zR, zM",
+        "unfold everything, fold everything (branches in a tree, boxes in the graph)",
+    ),
+    ("G", "put the focused node in a new group, inside its current one"),
+    ("E", "export what is on screen as FILE.svg next to the file"),
     ("gd", "jump from a repeat to its first copy"),
     ("?", "this page; j k scroll, q closes"),
 ];
@@ -90,6 +100,7 @@ enum Ask {
     Loose,
     Connect,
     Search,
+    Group,
 }
 
 impl Ask {
@@ -100,6 +111,7 @@ impl Ask {
             Ask::Loose => "New node: name",
             Ask::Connect => "Connect the focused node to: name",
             Ask::Search => "Search",
+            Ask::Group => "New group around the focused node: name",
         }
     }
 }
@@ -168,6 +180,8 @@ fn describe(edit: &Edit) -> String {
         Edit::AddEdge { .. } => "added an edge".into(),
         Edit::DeleteNode { name } => format!("deleted {name} and its edges"),
         Edit::DeleteEdge { .. } => "deleted an edge".into(),
+        Edit::AddRecord { kind, .. } => format!("added a {kind}"),
+        Edit::DeleteGroup { name } => format!("removed the box {name}; its members stay"),
         Edit::Rename { name, to, .. } => format!("renamed {name} to {to}"),
         Edit::Move { positions } => format!("saved {} positions", positions.len()),
         Edit::Batch { edits } => edits.iter().map(describe).collect::<Vec<_>>().join(", "),
@@ -336,7 +350,7 @@ fn App() -> impl IntoView {
             let key = format!("{lay}:{}", only.join(" "));
             let refit = shown_layout.get_value() != key;
             shown_layout.set_value(key);
-            let mut shown = mm.clone();
+            let mut shown = folded(&mm);
             if let Some((field, _)) = mm.edge_kinds.as_ref().filter(|_| !only.is_empty()) {
                 shown.edges.retain(|e| e.fields.iter().any(|(k, v)| k == field && only.contains(v)));
             }
@@ -454,6 +468,36 @@ fn App() -> impl IntoView {
                 then,
             ),
             (Ask::Connect, Some(a)) => send(new_edge(a, &name, a), Some(format!("n:{a}"))),
+            (Ask::Group, Some(a)) => {
+                let (group, names) = m.with_untracked(|mm| {
+                    (
+                        mm.nodes.iter().find(|n| n.name == a).and_then(|n| n.group.clone()),
+                        mm.names.clone(),
+                    )
+                });
+                let mut fields = vec![(names.group_key.clone(), name.clone())];
+                if let Some(g) = group {
+                    fields.push(("Parent".into(), g));
+                }
+                let put = Edit::Set {
+                    kind: "Node".into(),
+                    key: a.to_string(),
+                    field: names.group,
+                    value: name.clone(),
+                };
+                send(
+                    Edit::Batch {
+                        edits: vec![
+                            Edit::AddRecord {
+                                kind: "Group".into(),
+                                fields,
+                            },
+                            put,
+                        ],
+                    },
+                    Some(format!("g:{name}")),
+                );
+            }
             (_, None) => msg.set("focus a node first (h j k l, or click one)".into()),
         }
     };
@@ -552,12 +596,47 @@ fn App() -> impl IntoView {
                     } else if let Some(i) = at.strip_prefix("e:").and_then(|i| i.parse().ok()) {
                         send(Edit::DeleteEdge { index: i }, None);
                         focus.set(None);
-                    } else if at.starts_with("g:") {
-                        msg.set("deleting a group comes with groups, in step 4".into());
+                    } else if let Some(g) = at.strip_prefix("g:") {
+                        send(Edit::DeleteGroup { name: g.to_string() }, None);
+                        focus.set(None);
                     }
                 }
+                ('z', "a") if it.is_none() && at.starts_with("g:") => {
+                    let name = at[2..].to_string();
+                    let shut = m.with_untracked(|mm| mm.groups.iter().any(|g| g.name == name && g.collapsed));
+                    let value = if shut { String::new() } else { "yes".to_string() };
+                    send(
+                        Edit::Set {
+                            kind: "Group".into(),
+                            key: name.clone(),
+                            field: "Collapsed".into(),
+                            value,
+                        },
+                        Some(format!("g:{name}")),
+                    );
+                }
+                ('z', "R" | "M") if tree.with_untracked(Option::is_none) => {
+                    let close = key == "M";
+                    let edits: Vec<Edit> = m.with_untracked(|mm| {
+                        mm.groups
+                            .iter()
+                            .filter(|g| g.collapsed != close)
+                            .map(|g| Edit::Set {
+                                kind: "Group".into(),
+                                key: g.name.clone(),
+                                field: "Collapsed".into(),
+                                value: if close { "yes".into() } else { String::new() },
+                            })
+                            .collect()
+                    });
+                    if edits.is_empty() {
+                        msg.set(format!("every box is {} already", if close { "folded" } else { "open" }));
+                        return;
+                    }
+                    send(Edit::Batch { edits }, None);
+                }
                 ('z', "a") => match it {
-                    None => msg.set("za folds a branch in a tree; press t first".into()),
+                    None => msg.set("za folds a branch in a tree, or a box in the graph; focus one first".into()),
                     Some(i) if i.looped => msg.set(format!("{} is already above: a loop", i.name)),
                     Some(i) if i.repeat || tree.with_untracked(|t| t.as_ref().is_some_and(|t| t.spec.open.contains(&i.id))) => {
                         tree.update(|t| {
@@ -655,6 +734,16 @@ fn App() -> impl IntoView {
             ("c", false) => open_prompt(Ask::Connect),
             ("/", false) => open_prompt(Ask::Search),
             ("d" | "z" | "g", false) => pending.set(key.chars().next()),
+            ("G", false) => open_prompt(Ask::Group),
+            ("E", false) => {
+                let svg = canvas_export_svg();
+                spawn_local(async move {
+                    match call("export_svg", &[("svg", &svg)]).await {
+                        Ok(path) => msg.set(format!("exported {path}")),
+                        Err(e) => msg.set(format!("export failed: {e}")),
+                    }
+                });
+            }
             ("t" | "T", false) => {
                 let Some(a) = anchor() else {
                     msg.set("focus a node first (h j k l, or click one)".into());

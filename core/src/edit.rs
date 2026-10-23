@@ -44,12 +44,22 @@ pub enum Edit {
     AddEdge {
         fields: Vec<(String, String)>,
     },
+    /// Add a record of any type, a Group say.
+    AddRecord {
+        kind: String,
+        fields: Vec<(String, String)>,
+    },
     /// Delete a node and every edge touching it; drop it from view folds.
     DeleteNode {
         name: String,
     },
     DeleteEdge {
         index: usize,
+    },
+    /// Delete a group box but keep what was in it: members and child
+    /// groups move up to its parent; edges onto the box go with it.
+    DeleteGroup {
+        name: String,
     },
     /// Rename a node or group and every reference to it.
     Rename {
@@ -123,6 +133,49 @@ fn run(doc: &mut Doc, edit: &Edit) -> Result<(), String> {
             set(doc, n, field, value, &order(EDGE))
         }
         Edit::AddNode { fields } => insert(doc, NODE, fields),
+        Edit::AddRecord { kind, fields } => insert(doc, kind, fields),
+        Edit::DeleteGroup { name } => {
+            let n = find(doc, GROUP, &key(GROUP), name)?;
+            let up = doc.records()[n].get(&s.parent).map(str::to_string);
+            doc.delete(n);
+
+            // Members and children move up a level: to the parent, or out.
+            let moves: Vec<(usize, String)> = doc
+                .records()
+                .iter()
+                .enumerate()
+                .filter(|(_, r)| !r.is_descriptor())
+                .filter_map(|(n, r)| match r.kind.as_deref() {
+                    Some(NODE) if r.get(&s.group) == Some(name) => Some((n, s.group.clone())),
+                    Some(GROUP) if r.get(&s.parent) == Some(name) => Some((n, s.parent.clone())),
+                    _ => None,
+                })
+                .collect();
+            for (n, field) in moves {
+                match &up {
+                    Some(p) => {
+                        doc.set(n, &field, p);
+                    }
+                    None => {
+                        doc.remove(n, &field, None);
+                    }
+                }
+            }
+
+            // Edges onto the box go; views forget it.
+            let touching: Vec<usize> = records_of(doc, EDGE)
+                .into_iter()
+                .filter(|(_, r)| r.get(&s.from) == Some(name) || r.get(&s.to) == Some(name))
+                .map(|(n, _)| n)
+                .collect();
+            for n in touching.into_iter().rev() {
+                doc.delete(n);
+            }
+            for (n, _) in records_of(doc, VIEW) {
+                doc.remove(n, "Collapse", Some(name));
+            }
+            Ok(())
+        }
         Edit::AddEdge { fields } => insert(doc, EDGE, fields),
         Edit::DeleteNode { name } => {
             let n = find(doc, NODE, &key(NODE), name)?;
@@ -404,6 +457,32 @@ mod tests {
             text.contains("Edges: branch relates\nCollapse: Flowcharts\n\nName: Everything"),
             "both old folds go, the new one stays in place"
         );
+    }
+
+    #[test]
+    fn delete_group_keeps_its_members() {
+        // Frontend holds Canvas; Frontend's parent is App.
+        let text = apply(EXAMPLE, &Edit::DeleteGroup { name: "Frontend".into() }).unwrap();
+        assert!(!text.contains("Name: Frontend\n"));
+        assert!(text.contains("Name: Canvas\nParent: App\n"), "the child box moves up to App");
+
+        // Save flow has edges onto its box (Rule engine runs it).
+        let text = apply(EXAMPLE, &Edit::DeleteGroup { name: "Save flow".into() }).unwrap();
+        assert!(!text.contains("To: Save flow"), "edges onto the box go with it");
+        assert!(
+            text.contains("Name: Edit made\nKind: start\nPos:"),
+            "members leave the box, records stay"
+        );
+    }
+
+    #[test]
+    fn add_record_adds_a_group() {
+        let edit = Edit::AddRecord {
+            kind: "Group".into(),
+            fields: vec![("Name".into(), "Docs".into()), ("Parent".into(), "App".into())],
+        };
+        let text = apply(EXAMPLE, &edit).unwrap();
+        assert!(text.contains("Name: Ideas\nLabel: What it is for\nColor: #1f5f46\n\nName: Docs\nParent: App\n"));
     }
 
     #[test]

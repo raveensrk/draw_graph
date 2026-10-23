@@ -114,6 +114,16 @@ fn step(doc: &Doc, back: bool) -> Result<String, String> {
     Ok(text)
 }
 
+/// Write the canvas SVG next to the file: FILE.rec -> FILE.svg. Returns its path.
+#[tauri::command]
+fn export_svg(doc: State<Doc>, svg: String) -> Result<String, String> {
+    let d = doc.lock().map_err(|e| e.to_string())?;
+    let out = d.path.with_extension("svg");
+    write(&out, &svg)?;
+    log("export", json!({ "path": out, "bytes": svg.len() }));
+    Ok(out.display().to_string())
+}
+
 /// A log line from the web view: its errors, renders and layouts.
 #[tauri::command]
 fn ui_log(line: String) {
@@ -167,7 +177,7 @@ pub fn run(path: PathBuf) -> Result<(), String> {
 
     tauri::Builder::default()
         .manage(Mutex::new(shared))
-        .invoke_handler(tauri::generate_handler![open, apply, undo, redo, ui_log])
+        .invoke_handler(tauri::generate_handler![open, apply, undo, redo, ui_log, export_svg])
         .setup(move |app| {
             if let Some(w) = app.get_webview_window("main") {
                 let _ = w.set_title(&title);
