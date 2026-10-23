@@ -151,6 +151,12 @@ between them (click again or Esc to clear). `%graph: color` on a field with
 no order, like Tag, colours by the first value. agent1's dev_tools.rec moved
 from Level, Tier, Category and Subcategory to tags on 2026-10-24.
 
+### Follow mode
+
+`F` turns it on: every new selection (keys, click, search, `gd`, an edit)
+zooms the view to 1.3x and glides the selected node to the middle. `zz`
+does it once. Off at start; memory only.
+
 ### Folding a branch
 
 In the graph view `za` on a node hides everything downstream of it, shown

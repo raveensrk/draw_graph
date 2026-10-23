@@ -29,6 +29,10 @@ window.addEventListener("unhandledrejection", (e) => report("ui_error", { messag
 // Fitting a small graph would blow it up; never past this zoom.
 const FIT_MAX_ZOOM = 1.2;
 
+// Follow mode: the zoom the selection is shown at, and how long the glide takes.
+const FOLLOW_ZOOM = 1.3;
+const FOLLOW_MS = 180;
+
 // Drag events closer together than this are one drag.
 const DRAG_SETTLE_MS = 60;
 
@@ -282,6 +286,17 @@ window.dgCanvas = {
     // Jump, no animation: an animation still running when the next edit
     // removes the element breaks Cytoscape.
     if (bb.x1 < 0 || bb.y1 < 0 || bb.x2 > w || bb.y2 > h) cy.center(el);
+  },
+
+  // Zoom to FOLLOW_ZOOM with the element in the middle of the canvas. The
+  // glide is a viewport animation only; render() stops it before a swap.
+  follow(id) {
+    const el = cy.getElementById(id);
+    if (el.empty()) return;
+    const p = el.isEdge() ? el.midpoint() : el.position();
+    const pan = { x: cy.width() / 2 - p.x * FOLLOW_ZOOM, y: cy.height() / 2 - p.y * FOLLOW_ZOOM };
+    cy.stop(true, false);
+    cy.animate({ zoom: FOLLOW_ZOOM, pan }, { duration: FOLLOW_MS });
   },
 
   // Mark search matches; returns their ids in reading order.

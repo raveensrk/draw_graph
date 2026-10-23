@@ -48,6 +48,8 @@ extern "C" {
     fn canvas_fit();
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = renderTree)]
     fn canvas_render_tree(items: &str, refit: bool);
+    #[wasm_bindgen(js_namespace = dgCanvas, js_name = follow)]
+    fn canvas_follow(id: &str);
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = exportSvg)]
     fn canvas_export_svg() -> String;
 }
@@ -76,6 +78,8 @@ const KEYS: &[(&str, &str)] = &[
     ("L", "next layout: manual, layered, tree, radial, force"),
     ("s", "save the current positions into the file (switches to manual)"),
     ("f", "fit the graph to the window"),
+    ("F", "follow mode on or off: zoom to and centre every node you select"),
+    ("zz", "zoom to and centre the selection once"),
     ("t, T", "tree from the focused node: what it unlocks, what it needs"),
     ("V", "next saved view (the file's View records)"),
     (";", "next edge kind to follow or show; then back to all"),
@@ -202,6 +206,8 @@ fn App() -> impl IntoView {
     let tag_filter = RwSignal::new(None::<String>);
     // Graph-view branch folds (za on a node): memory only.
     let branch_folds = RwSignal::new(Vec::<String>::new());
+    // Follow mode (F): every new selection is zoomed to and centred.
+    let follow = RwSignal::new(false);
     let view_at = StoredValue::new(None::<usize>);
     let items = Memo::new(move |_| {
         let mm = m.get();
@@ -379,6 +385,9 @@ fn App() -> impl IntoView {
         }
         if let Some(f) = focus.get_untracked() {
             canvas_focus(&f);
+            if follow.get_untracked() {
+                canvas_follow(&f);
+            }
         }
     });
 
@@ -399,6 +408,9 @@ fn App() -> impl IntoView {
             return;
         }
         canvas_focus(f.as_deref().unwrap_or(""));
+        if let Some(id) = f.as_deref().filter(|_| follow.get()) {
+            canvas_follow(id);
+        }
     });
 
     // The node an action starts from: the focused node, or a focused edge's From.
@@ -738,6 +750,10 @@ fn App() -> impl IntoView {
                     now.extend(parents.into_iter().filter(|p| !now.contains(p)).collect::<Vec<_>>());
                     set_folds(now);
                 }
+                ('z', "z") => match focus.get_untracked() {
+                    Some(id) => canvas_follow(&id),
+                    None => msg.set("select a node first".into()),
+                },
                 ('g', "d") => match it.and_then(|i| i.first) {
                     Some(first) => {
                         focus.set(Some(first));
@@ -942,6 +958,14 @@ fn App() -> impl IntoView {
                 send(Edit::Move { positions }, None);
             }
             ("f", false) => canvas_fit(),
+            ("F", false) => {
+                let on = !follow.get_untracked();
+                follow.set(on);
+                msg.set(format!(
+                    "follow {}",
+                    if on { "on: the view stays on your selection" } else { "off" }
+                ));
+            }
             ("?", false) => mode.set(Mode::Help),
             _ => return,
         }
@@ -992,8 +1016,10 @@ fn App() -> impl IntoView {
         let file = path.get().rsplit('/').next().unwrap_or_default().to_string();
         let problems = mm.problems.len();
         let bad = if problems > 0 { "bad" } else { "" };
+        let following = follow.get().then(|| view! { <span class="mode">"FOLLOW"</span> });
         view! {
             <span class="mode">{label}</span>
+            {following}
             <span>{file}</span>
             <span>{tree.with(|t| match t {
                 Some(TreeState { view: Some(v), .. }) => format!("view {v}"),
