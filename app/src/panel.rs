@@ -24,9 +24,21 @@ pub fn show(app: &mut App, ui: &mut egui::Ui) {
             ui.separator();
         }
         match app.record() {
-            Some(r) if r.starts_with("n:") => node(app, ui, &r[2..]),
+            Some(r) if r.starts_with("n:") => node(app, ui, &r[2..], None),
             Some(r) if r.starts_with("g:") => group(app, ui, &r[2..]),
-            Some(r) if r.starts_with("e:") => edge(app, ui, r[2..].parse().unwrap_or(usize::MAX)),
+            // Stepping a node's edges (e, or a link in its panes): the panel
+            // stays on the node, the edge on top, all its links below.
+            Some(r) if r.starts_with("e:") => {
+                let index = r[2..].parse().unwrap_or(usize::MAX);
+                let of = app
+                    .edge_of
+                    .clone()
+                    .filter(|n| app.full.edges.iter().any(|e| e.index == index && (&e.from == n || &e.to == n)));
+                match of {
+                    Some(n) => node(app, ui, &n, Some(index)),
+                    None => edge(app, ui, index),
+                }
+            }
             _ => summary(app, ui),
         }
     });
@@ -131,11 +143,38 @@ fn form(
         });
 }
 
-fn node(app: &mut App, ui: &mut egui::Ui, name: &str) {
+/// A node's panel. With `current`, one of its edges is selected: that edge
+/// on top, then every link, and the node's own fields left out.
+fn node(app: &mut App, ui: &mut egui::Ui, name: &str, current: Option<usize>) {
     let Some(n) = app.full.nodes.iter().find(|n| n.name == name).cloned() else {
         ui.label(RichText::new(format!("{name} is gone")).color(MUTED));
         return;
     };
+    if let Some(index) = current {
+        let all = app.full.edges.iter().filter(|e| e.from == n.name || e.to == n.name).count();
+        let at = app
+            .full
+            .edges
+            .iter()
+            .filter(|e| e.from == n.name || e.to == n.name)
+            .position(|e| e.index == index)
+            .map_or(0, |p| p + 1);
+        heading(
+            ui,
+            &n.label,
+            &format!("Node · edge {at} of {all} selected · e for the next, Esc returns"),
+        );
+        let line = app
+            .full
+            .edges
+            .iter()
+            .find(|e| e.index == index)
+            .map(|e| format!("SELECTED EDGE · {} → {}", e.from, e.to))
+            .unwrap_or_default();
+        pane(ui, &line, |ui| edge_body(app, ui, index));
+        links_panes(app, ui, &n.name, current);
+        return;
+    }
     heading(ui, &n.label, "Node · Enter edits, Esc returns");
 
     // Tags as chips: the name filters, × removes, the field adds on Enter.
@@ -217,12 +256,17 @@ fn node(app: &mut App, ui: &mut egui::Ui, name: &str) {
     };
     form(app, ui, &format!("n:{}", n.name), &inputs, &n.fields, skip.as_deref(), &save);
 
-    // Links in two panes: what leads here, and what this leads to.
+    links_panes(app, ui, &n.name, None);
+}
+
+/// Links in two panes: what leads here, and what this leads to; the
+/// `current` edge highlighted.
+fn links_panes(app: &mut App, ui: &mut egui::Ui, name: &str, current: Option<usize>) {
     let links = |incoming: bool| -> Vec<Link> {
         app.full
             .edges
             .iter()
-            .filter(|e| if incoming { e.to == n.name } else { e.from == n.name })
+            .filter(|e| if incoming { e.to == name } else { e.from == name })
             .map(|e| {
                 let other = if incoming { &e.from } else { &e.to };
                 let kind = e
@@ -242,11 +286,11 @@ fn node(app: &mut App, ui: &mut egui::Ui, name: &str) {
     let (ins, outs) = (links(true), links(false));
     ui.add_space(8.0);
     pane(ui, &format!("INCOMING ({}) · what leads here", ins.len()), |ui| {
-        link_rows(app, ui, &ins, "←")
+        link_rows(app, ui, &ins, "←", name, current)
     });
     ui.add_space(6.0);
     pane(ui, &format!("OUTGOING ({}) · what this leads to", outs.len()), |ui| {
-        link_rows(app, ui, &outs, "→")
+        link_rows(app, ui, &outs, "→", name, current)
     });
 }
 
@@ -270,15 +314,25 @@ fn pane(ui: &mut egui::Ui, title: &str, body: impl FnOnce(&mut egui::Ui)) {
 
 /// Rows of links: the other end (click to go there), the kind, the note, and
 /// a button that opens the edge itself.
-fn link_rows(app: &mut App, ui: &mut egui::Ui, links: &[Link], arrow: &str) {
+fn link_rows(app: &mut App, ui: &mut egui::Ui, links: &[Link], arrow: &str, node: &str, current: Option<usize>) {
     if links.is_empty() {
         ui.label(RichText::new("none").color(MUTED));
         return;
     }
     for l in links {
+        let on = current == Some(l.index);
         ui.horizontal_wrapped(|ui| {
-            ui.label(arrow);
-            if ui.link(&l.other).on_hover_text("go to it").clicked() {
+            ui.label(if on {
+                RichText::new(format!("{arrow} ▶")).color(ACCENT).strong()
+            } else {
+                RichText::new(arrow)
+            });
+            let name = if on {
+                RichText::new(&l.other).color(ACCENT).strong()
+            } else {
+                RichText::new(&l.other)
+            };
+            if ui.link(name).on_hover_text("go to it").clicked() {
                 let kind = if app.full.nodes.iter().any(|n| n.name == l.other) {
                     "n"
                 } else {
@@ -293,8 +347,13 @@ fn link_rows(app: &mut App, ui: &mut egui::Ui, links: &[Link], arrow: &str) {
             if !kind.is_empty() {
                 ui.label(RichText::new(kind).color(MUTED));
             }
-            if ui.small_button("link").on_hover_text("open this edge").clicked() {
+            if ui
+                .small_button("link")
+                .on_hover_text("select this edge; the panel stays on this node")
+                .clicked()
+            {
                 app.selected = Some(format!("e:{}", l.index));
+                app.edge_of = Some(node.to_string());
             }
         });
         if let Some(note) = &l.note {
@@ -310,6 +369,19 @@ fn edge(app: &mut App, ui: &mut egui::Ui, index: usize) {
     };
     let or = e.any.as_ref().map(|a| format!(" · OR group {a}")).unwrap_or_default();
     heading(ui, &format!("{} → {}", e.from, e.to), &format!("Edge · {}{or}", e.style));
+    edge_body(app, ui, index);
+    // Each end in its own pane: what it is, its tags and note.
+    for (title, name) in [("FROM · the prerequisite end", &e.from), ("TO · the end it leads to", &e.to)] {
+        ui.add_space(6.0);
+        pane(ui, title, |ui| end(app, ui, name));
+    }
+}
+
+/// An edge's fields and its Delete button.
+fn edge_body(app: &mut App, ui: &mut egui::Ui, index: usize) {
+    let Some(e) = app.full.edges.iter().find(|e| e.index == index).cloned() else {
+        return;
+    };
     let inputs = app.full.edge_form.clone();
     let save = move |field: String, value: String| Some((Edit::SetEdge { index, field, value }, None));
     form(app, ui, &format!("e:{index}"), &inputs, &e.fields, None, &save);
@@ -320,11 +392,6 @@ fn edge(app: &mut App, ui: &mut egui::Ui, index: usize) {
     {
         app.outbox.push((Edit::DeleteEdge { index }, None));
         app.selected = None;
-    }
-    // Each end in its own pane: what it is, its tags and note.
-    for (title, name) in [("FROM · the prerequisite end", &e.from), ("TO · the end it leads to", &e.to)] {
-        ui.add_space(6.0);
-        pane(ui, title, |ui| end(app, ui, name));
     }
 }
 

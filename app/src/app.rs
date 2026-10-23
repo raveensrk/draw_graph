@@ -145,6 +145,9 @@ pub struct App {
     pub outbox: Vec<(Edit, Option<String>)>,
     pub focus_panel: bool,
     pub focus_tag: bool,
+    /// The node whose edges `e` (or a panel link) steps through: the panel
+    /// stays on it while one of its edges is selected.
+    pub edge_of: Option<String>,
     /// The panel's field text while it is being typed, by field name, for
     /// the record and file version in `buffers_for`.
     pub buffers: HashMap<String, String>,
@@ -231,6 +234,7 @@ impl App {
             outbox: Vec::new(),
             focus_panel: false,
             focus_tag: false,
+            edge_of: None,
             buffers: HashMap::new(),
             buffers_for: (String::new(), 0),
             version: 0,
@@ -336,6 +340,7 @@ impl App {
             other => other,
         };
         self.selected = id;
+        self.edge_of = None;
     }
 
     /// The node an action starts from: the selected node, a tree item's
@@ -1062,6 +1067,7 @@ impl App {
         match ids.get(next) {
             Some(id) => {
                 self.selected = Some(id.clone());
+                self.edge_of = Some(a.clone());
                 let index = id[2..].parse().unwrap_or(usize::MAX);
                 self.msg = format!(
                     "edge {} of {}: {} (e for the next, dd deletes it)",
