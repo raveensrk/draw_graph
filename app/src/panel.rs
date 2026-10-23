@@ -151,14 +151,9 @@ fn node(app: &mut App, ui: &mut egui::Ui, name: &str, current: Option<usize>) {
         return;
     };
     if let Some(index) = current {
-        let all = app.full.edges.iter().filter(|e| e.from == n.name || e.to == n.name).count();
-        let at = app
-            .full
-            .edges
-            .iter()
-            .filter(|e| e.from == n.name || e.to == n.name)
-            .position(|e| e.index == index)
-            .map_or(0, |p| p + 1);
+        let order = app.edges_of(&n.name);
+        let all = order.len();
+        let at = order.iter().position(|i| *i == index).map_or(0, |p| p + 1);
         heading(
             ui,
             &n.label,

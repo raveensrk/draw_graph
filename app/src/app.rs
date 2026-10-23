@@ -1053,15 +1053,23 @@ impl App {
         }
     }
 
+    /// A node's edges in the panel's order: incoming, then outgoing.
+    pub fn edges_of(&self, node: &str) -> Vec<usize> {
+        let ins = self.full.edges.iter().filter(|e| e.to == node);
+        let outs = self.full.edges.iter().filter(|e| e.from == node && e.to != node);
+        ins.chain(outs).map(|e| e.index).collect()
+    }
+
+    /// e: the next edge of the node it started from. While one of its edges
+    /// is selected the node stays the scope, so an incoming edge never hands
+    /// the walk over to the node at its other end.
     fn step_edge(&mut self) {
-        let Some(a) = self.anchor() else { return };
-        let ids: Vec<String> = self
-            .full
-            .edges
-            .iter()
-            .filter(|e| e.from == a || e.to == a)
-            .map(|e| format!("e:{}", e.index))
-            .collect();
+        let scope = self
+            .edge_of
+            .clone()
+            .filter(|_| self.selected.as_ref().is_some_and(|s| s.starts_with("e:")));
+        let Some(a) = scope.or_else(|| self.anchor()) else { return };
+        let ids: Vec<String> = self.edges_of(&a).into_iter().map(|i| format!("e:{i}")).collect();
         let at = self.selected.clone().unwrap_or_default();
         let next = ids.iter().position(|i| *i == at).map_or(0, |p| (p + 1) % ids.len().max(1));
         match ids.get(next) {
