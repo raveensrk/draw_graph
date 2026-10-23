@@ -2,7 +2,8 @@
 //!
 //! [`rec`] reads and writes the text, [`schema`] and [`graph`] say what it
 //! means, [`check`] finds its problems, [`edit`] changes it behind that
-//! check, and [`model`] turns it into what the UI draws.
+//! check, [`model`] turns it into what the UI draws, and [`tree`] walks it as a
+//! folding tree.
 
 pub mod check;
 pub mod edit;
@@ -10,3 +11,4 @@ pub mod graph;
 pub mod model;
 pub mod rec;
 pub mod schema;
+pub mod tree;

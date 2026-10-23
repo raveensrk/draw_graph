@@ -543,15 +543,15 @@ Note: Like dev_tools_path.svg: columns by Level, left to right.
 Name: Build tree
 Layout: tree
 Direction: down
-Root: Tauri
+Root: Bash
 Follow: out
 Edges: requires
-Collapse: rec parser
+Collapse: Rule engine
 Repeat: fold
-Note: Everything Tauri unlocks, as a tree. Release builds
-+ shows three times, once under each parent: in full under
-+ the first, folded with "same as above" under the other two.
-+ rec parser starts folded too.
+Note: Everything Bash unlocks, as a tree. Release builds and
++ File watcher are reached by two paths each: in full under
++ the first, folded with "same as above" under the second.
++ Rule engine starts folded.
 
 Name: What Tree view needs
 Layout: tree

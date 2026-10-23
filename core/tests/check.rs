@@ -88,7 +88,7 @@ fn duplicate_name_ignoring_case() {
 
 #[test]
 fn foreign_key_to_nothing() {
-    expect(&with("Root: Tauri\n", "Root: Tauryy\n"), "Root \"Tauryy\" names no Node");
+    expect(&with("Root: Bash\n", "Root: Bashh\n"), "Root \"Bashh\" names no Node");
 }
 
 #[test]
@@ -239,8 +239,8 @@ fn edge_twice() {
 #[test]
 fn view_folds_an_unknown_node() {
     expect(
-        &with("Collapse: rec parser\n", "Collapse: rec parsr\n"),
-        "no node or group named \"rec parsr\"",
+        &with("Collapse: Rule engine\n", "Collapse: Rule engin\n"),
+        "no node or group named \"Rule engin\"",
     );
 }
 

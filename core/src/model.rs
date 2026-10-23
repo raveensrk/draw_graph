@@ -8,7 +8,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::check::{Problem, check};
-use crate::graph::{EDGE, GROUP, NODE, Settings};
+use crate::graph::{EDGE, GROUP, NODE, Settings, VIEW};
 use crate::rec::{Doc, Record};
 use crate::schema::{RecType, Schema, Type};
 
@@ -52,6 +52,23 @@ pub struct EdgeView {
     pub fields: Vec<(String, String)>,
 }
 
+/// A saved View record: how to look at the graph.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+pub struct SavedView {
+    pub name: String,
+    pub layout: String,
+    pub direction: Option<String>,
+    pub root: Option<String>,
+    /// Walk edges backwards (`Follow: in`).
+    pub follow_in: bool,
+    /// Edge kinds shown or followed; empty is every kind.
+    pub edges: Vec<String>,
+    pub collapse: Vec<String>,
+    /// `Repeat: full`; the default is fold.
+    pub full: bool,
+    pub filter: Option<String>,
+}
+
 /// One input in an edit form.
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
 pub struct Input {
@@ -85,6 +102,7 @@ pub struct Model {
     pub group_form: Vec<Input>,
     /// The edge kind field and its values, for new edges and the legend.
     pub edge_kinds: Option<(String, Vec<String>)>,
+    pub views: Vec<SavedView>,
     pub problems: Vec<Problem>,
 }
 
@@ -175,7 +193,28 @@ pub fn model(text: &str) -> Model {
         _ => None,
     });
 
+    let views = of(VIEW)
+        .into_iter()
+        .filter_map(|r| {
+            Some(SavedView {
+                name: r.get(&key(VIEW))?.to_string(),
+                layout: r.get("Layout").unwrap_or("manual").to_string(),
+                direction: r.get("Direction").map(str::to_string),
+                root: r.get("Root").map(str::to_string),
+                follow_in: r.get("Follow") == Some("in"),
+                edges: r
+                    .get("Edges")
+                    .map(|e| e.split_whitespace().map(str::to_string).collect())
+                    .unwrap_or_default(),
+                collapse: r.all("Collapse").map(str::to_string).collect(),
+                full: r.get("Repeat") == Some("full"),
+                filter: r.get("Filter").map(str::to_string),
+            })
+        })
+        .collect();
+
     Model {
+        views,
         names: Names {
             node_key: key(NODE),
             group_key: key(GROUP),
@@ -281,5 +320,17 @@ mod tests {
         let level = m.node_form.iter().find(|i| i.field == "Level").unwrap();
         assert_eq!((level.kind.as_str(), level.options.len()), ("select", 5));
         assert_eq!(m.edge_kinds.as_ref().map(|(f, v)| (f.as_str(), v.len())), Some(("Kind", 4)));
+
+        let build = m.views.iter().find(|v| v.name == "Build tree").unwrap();
+        assert_eq!(
+            (build.layout.as_str(), build.root.as_deref(), build.collapse.len()),
+            ("tree", Some("Bash"), 1)
+        );
+        assert!(
+            m.views
+                .iter()
+                .find(|v| v.name == "What Tree view needs")
+                .is_some_and(|v| v.follow_in && v.full)
+        );
     }
 }

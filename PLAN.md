@@ -4,9 +4,9 @@ A desktop app for drawing graphs and seeing ideas as graphs: learning paths,
 mind maps, flowcharts and concept maps. Every document is one plain-text
 recfile that a person, git or an agent can edit while the app is open.
 
-Status: steps 1 and 2 of the build order done (2026-10-23): the recfile
-library, `draw_graph check`, and the window with canvas, vim keys, side
-panel and live reload. The reference document is
+Status: steps 1 to 3 of the build order done (2026-10-23): the recfile
+library, `draw_graph check`, the window with canvas, vim keys, side panel
+and live reload, and the folding tree view. The reference document is
 [draw_graph_example.rec](example/draw_graph_example.rec).
 
 ## Decisions
@@ -23,6 +23,7 @@ panel and live reload. The reference document is
 | Saving | Every accepted edit is written at once (temp file, then rename). Undo and redo step through the texts the app wrote |
 | Edit form | A side panel, built from the schema: an enum or small range is a dropdown, `Note` a text area. A repeated field (`Collapse`) is shown, not edited, since one input would flatten it |
 | Export | SVG |
+| Icon | [icon.svg](app/icons/icon.svg), dark: a graph branching left to right like the tree view, the root in the canvas's gold focus ring, nodes in the level colours, one dashed OR edge. Every file in `app/icons/` is rendered from it |
 | Name | `draw_graph` for the app, the command and the repo (chosen 2026-10-23), one name everywhere. Free on crates.io, PyPI and npm |
 | Repo | Public, on GitHub |
 | Schema checks | Done by draw_graph itself, not by calling `recfix`: recutils is hard to get on Windows. A descriptor field or `%type` it cannot check is reported, never skipped |
@@ -122,8 +123,23 @@ A node with several parents appears under each one. `Repeat` decides how:
   first. `za` still unfolds it. Copies never multiply down a chain.
 - `full`: every copy shows its whole branch. For small trees only.
 
-Folds are stored by node name in the view's `Collapse` lines, so folding a
-node folds every copy of it.
+Folds are by node name, so folding a node folds every copy of it. Where a
+fold lives depends on where the tree came from:
+
+- A saved view (`V` steps through the View records): its `Collapse` lines,
+  written at once like any edit.
+- A quick tree (`t` what it unlocks, `T` what it needs): memory only, so
+  folding never makes a git change by accident.
+
+A quick tree follows the commonest edge kind around its root (`requires`
+from a tool, `branch` from the mind map centre); `;` steps through the
+kinds and back to all. A repeat opened with `za` is opened by its place in
+the tree, in memory only.
+
+The tree is laid out by draw_graph itself (`core/src/tree.rs`), not by
+ELK: each leaf its own row, each parent centred on its children, elbow
+edges. Groups are not drawn as boxes in a tree, since one node can show in
+several places.
 
 ### Styling
 
@@ -138,8 +154,12 @@ the code uses (`KEYS` in `ui/src/main.rs`). Shipped in step 2:
 
 `h j k l` move, `e` step through edges, `Enter`/`i` edit in the panel,
 `Esc` back, `o`/`O` add after/before, `a` add alone, `c` connect, `dd`
-delete, `u`/`Ctrl-r` undo/redo, `/` `n` `N` search, `L` next layout, `s`
-save positions, `f` fit, `?` help. `za` (fold) comes with the tree view.
+delete, `u`/`Ctrl-r` undo/redo, `/` `n` `N` search, `L` next layout (or
+leave a tree), `s` save positions, `f` fit, `?` help.
+
+Tree view (step 3): `t`/`T` quick tree, `V` next saved view, `;` next edge
+kind, `za` fold or open a repeat, `zR`/`zM` unfold or fold all, `gd` from a
+repeat to its first copy.
 
 ## Saving and live reload
 
@@ -161,7 +181,7 @@ calls it once `dev_tools.py` is retired.
 1. Recfile parse and save, rules, `draw_graph check`. Done 2026-10-23.
 2. Canvas: Tauri window, Cytoscape.js, ELK layouts, vim keys, the edit form,
    live reload. Done 2026-10-23.
-3. Tree view: root, follow, fold, `Repeat`.
+3. Tree view: root, follow, fold, `Repeat`. Done 2026-10-23.
 4. Nested groups and SVG export.
 5. Convert agent1's `dev_tools.rec` to Edge records; retire `dev_tools.py`
    (its editor, charts and checks).
@@ -171,8 +191,11 @@ calls it once `dev_tools.py` is retired.
 
 - **Code signing.** Without an Apple Developer ID (99 USD a year) macOS
   warns on the first launch of the `.dmg`; Windows SmartScreen warns too.
-- **Tree layout and boxes.** ELK's `mrtree` lets group boxes overlap. The
-  real tree view (step 3) needs its own layout.
+- **ELK `tree` layout and boxes.** The graph layout named `tree` (ELK's
+  `mrtree`) lets group boxes overlap. The tree view has its own layout;
+  the ELK one may go.
+- **View `Filter` is not applied.** `V` shows a view's layout, root and
+  edge kinds, and says when its `Filter` expression is skipped.
 - **Trunk pinned to 0.21.** Trunk 0.22 needs rustc 1.96.1; this machine has
   1.94.0. Move up when Rust is updated.
 - **Views in the data file.** Folding a node is a git change. A side file is

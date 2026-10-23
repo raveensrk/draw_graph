@@ -17,6 +17,7 @@
 use draw_graph_core::check::Problem;
 use draw_graph_core::edit::Edit;
 use draw_graph_core::model::{Input, Model, model};
+use draw_graph_core::tree::{Item, Spec, common_kind, tree as walk};
 use leptos::prelude::*;
 use leptos::task::spawn_local;
 use serde::Deserialize;
@@ -45,6 +46,8 @@ extern "C" {
     fn canvas_positions() -> js_sys::Array;
     #[wasm_bindgen(js_namespace = dgCanvas, js_name = fit)]
     fn canvas_fit();
+    #[wasm_bindgen(js_namespace = dgCanvas, js_name = renderTree)]
+    fn canvas_render_tree(items: &str, refit: bool);
 }
 
 /// Layouts, in the order `L` steps through them.
@@ -71,6 +74,12 @@ const KEYS: &[(&str, &str)] = &[
     ("L", "next layout: manual, layered, tree, radial, force"),
     ("s", "save the current positions into the file (switches to manual)"),
     ("f", "fit the graph to the window"),
+    ("t, T", "tree from the focused node: what it unlocks, what it needs"),
+    ("V", "next saved view (the file's View records)"),
+    (";", "next edge kind to follow or show; then back to all"),
+    ("za", "fold or unfold the focused branch; on a repeat, open that copy"),
+    ("zR, zM", "unfold everything, fold everything"),
+    ("gd", "jump from a repeat to its first copy"),
     ("?", "this page; j k scroll, q closes"),
 ];
 
@@ -100,6 +109,15 @@ enum Mode {
     Normal,
     Prompt(Ask),
     Help,
+}
+
+/// The tree on screen: how to walk it, and the saved view it came from.
+/// From a saved view, folds are that view's Collapse lines; from t or T,
+/// they live here only.
+#[derive(Clone, Debug, PartialEq)]
+struct TreeState {
+    spec: Spec,
+    view: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -144,6 +162,7 @@ fn focus_first(selector: &str) {
 fn describe(edit: &Edit) -> String {
     match edit {
         Edit::Set { key, field, .. } => format!("saved {key}: {field}"),
+        Edit::SetList { key, field, values, .. } => format!("saved {key}: {} {field}", values.len()),
         Edit::SetEdge { index, field, .. } => format!("saved edge {index}: {field}"),
         Edit::AddNode { .. } => "added a node".into(),
         Edit::AddEdge { .. } => "added an edge".into(),
@@ -166,7 +185,21 @@ fn App() -> impl IntoView {
     let ask = RwSignal::new(String::new());
     let msg = RwSignal::new("opening".to_string());
     let refused = RwSignal::new(Vec::<Problem>::new());
-    let pending_d = RwSignal::new(false);
+    let pending = RwSignal::new(None::<char>);
+    let tree = RwSignal::new(None::<TreeState>);
+    let kinds = RwSignal::new(Vec::<String>::new());
+    let view_at = StoredValue::new(None::<usize>);
+    let items = Memo::new(move |_| {
+        let mm = m.get();
+        tree.get().map(|t| {
+            let mut s = t.spec.clone();
+            if let Some(v) = t.view.as_ref().and_then(|v| mm.views.iter().find(|x| &x.name == v)) {
+                s.collapse = v.collapse.clone();
+            }
+            walk(&mm, &s)
+        })
+    });
+    let item = move |id: &str| -> Option<Item> { items.with_untracked(|its| its.as_ref()?.iter().find(|i| i.id == id).cloned()) };
     let hits = RwSignal::new(Vec::<String>::new());
     let hit = RwSignal::new(0usize);
     let mounted = RwSignal::new(false);
@@ -286,18 +319,51 @@ fn App() -> impl IntoView {
         if !mounted.get() || lay.is_empty() {
             return;
         }
-        let refit = shown_layout.get_value() != lay;
-        shown_layout.set_value(lay.clone());
-        canvas_render(&serde_json::to_string(&mm).expect("model serializes"), &lay, refit);
+        let only = kinds.get();
+
+        // A tree draws its own items; the graph draws the model, its edges
+        // narrowed to the chosen kinds.
+        if let Some(its) = items.get() {
+            let key = tree.with_untracked(|t| {
+                t.as_ref()
+                    .map(|t| format!("tree:{}:{}:{}", t.spec.root, t.spec.follow_in, t.spec.kinds.join(" ")))
+            });
+            let key = key.unwrap_or_default();
+            let refit = shown_layout.get_value() != key;
+            shown_layout.set_value(key);
+            canvas_render_tree(&serde_json::to_string(&its).expect("items serialize"), refit);
+        } else {
+            let key = format!("{lay}:{}", only.join(" "));
+            let refit = shown_layout.get_value() != key;
+            shown_layout.set_value(key);
+            let mut shown = mm.clone();
+            if let Some((field, _)) = mm.edge_kinds.as_ref().filter(|_| !only.is_empty()) {
+                shown.edges.retain(|e| e.fields.iter().any(|(k, v)| k == field && only.contains(v)));
+            }
+            canvas_render(&serde_json::to_string(&shown).expect("model serializes"), &lay, refit);
+        }
         if let Some(f) = focus.get_untracked() {
             canvas_focus(&f);
         }
     });
+
+    // In a tree, a node focused by name (after an edit) moves to its first copy.
     Effect::new(move |_| {
         let f = focus.get();
-        if mounted.get() {
-            canvas_focus(f.as_deref().unwrap_or(""));
+        if !mounted.get() {
+            return;
         }
+        let copy = match (&f, items.get()) {
+            (Some(f), Some(its)) if f.starts_with("n:") || f.starts_with("g:") => {
+                its.iter().find(|i| i.name == f[2..]).map(|i| i.id.clone())
+            }
+            _ => None,
+        };
+        if let Some(id) = copy {
+            focus.set(Some(id));
+            return;
+        }
+        canvas_focus(f.as_deref().unwrap_or(""));
     });
 
     // The node an action starts from: the focused node, or a focused edge's From.
@@ -305,6 +371,9 @@ fn App() -> impl IntoView {
         let f = focus.get_untracked()?;
         if let Some(n) = f.strip_prefix("n:") {
             return Some(n.to_string());
+        }
+        if f.starts_with("t:") {
+            return item(&f).map(|i| i.name);
         }
         let i: usize = f.strip_prefix("e:")?.parse().ok()?;
         m.with_untracked(|mm| mm.edges.iter().find(|e| e.index == i).map(|e| e.from.clone()))
@@ -389,6 +458,34 @@ fn App() -> impl IntoView {
         }
     };
 
+    let folds = move || -> Vec<String> {
+        let Some(t) = tree.get_untracked() else { return Vec::new() };
+        let saved = t
+            .view
+            .as_ref()
+            .and_then(|v| m.with_untracked(|mm| mm.views.iter().find(|x| &x.name == v).map(|x| x.collapse.clone())));
+        saved.unwrap_or(t.spec.collapse)
+    };
+    let set_folds = move |names: Vec<String>| {
+        let Some(t) = tree.get_untracked() else { return };
+        match t.view {
+            Some(v) => send(
+                Edit::SetList {
+                    kind: "View".into(),
+                    key: v,
+                    field: "Collapse".into(),
+                    values: names,
+                },
+                None,
+            ),
+            None => tree.update(|t| {
+                if let Some(t) = t {
+                    t.spec.collapse = names;
+                }
+            }),
+        }
+    };
+
     let open_prompt = move |kind: Ask| {
         mode.set(Mode::Prompt(kind));
         request_animation_frame(move || {
@@ -407,7 +504,7 @@ fn App() -> impl IntoView {
             blur();
             mode.set(Mode::Normal);
             ask.set(String::new());
-            pending_d.set(false);
+            pending.set(None);
             refused.set(Vec::new());
             return;
         }
@@ -440,9 +537,96 @@ fn App() -> impl IntoView {
             return;
         }
 
-        let second_d = pending_d.get_untracked();
-        pending_d.set(false);
         let at = focus.get_untracked().unwrap_or_default();
+
+        // Two-key commands: dd, za, zR, zM, gd.
+        if let Some(first) = pending.get_untracked() {
+            pending.set(None);
+            let it = item(&at);
+            match (first, key.as_str()) {
+                ('d', "d") => {
+                    let name = anchor().filter(|_| at.starts_with("n:") || at.starts_with("t:"));
+                    if let Some(name) = name {
+                        send(Edit::DeleteNode { name }, None);
+                        focus.set(None);
+                    } else if let Some(i) = at.strip_prefix("e:").and_then(|i| i.parse().ok()) {
+                        send(Edit::DeleteEdge { index: i }, None);
+                        focus.set(None);
+                    } else if at.starts_with("g:") {
+                        msg.set("deleting a group comes with groups, in step 4".into());
+                    }
+                }
+                ('z', "a") => match it {
+                    None => msg.set("za folds a branch in a tree; press t first".into()),
+                    Some(i) if i.looped => msg.set(format!("{} is already above: a loop", i.name)),
+                    Some(i) if i.repeat || tree.with_untracked(|t| t.as_ref().is_some_and(|t| t.spec.open.contains(&i.id))) => {
+                        tree.update(|t| {
+                            if let Some(t) = t {
+                                match t.spec.open.iter().position(|o| *o == i.id) {
+                                    Some(p) => {
+                                        t.spec.open.remove(p);
+                                    }
+                                    None => t.spec.open.push(i.id.clone()),
+                                }
+                            }
+                        })
+                    }
+                    Some(i) => {
+                        let mut now = folds();
+                        let leaf = i.hidden == 0
+                            && items.with_untracked(|its| {
+                                its.as_ref()
+                                    .is_some_and(|its| !its.iter().any(|c| c.parent.as_ref() == Some(&i.id)))
+                            });
+                        match now.iter().position(|n| *n == i.name) {
+                            Some(p) => {
+                                now.remove(p);
+                            }
+                            None if leaf => {
+                                msg.set(format!("{} has nothing below it", i.name));
+                                return;
+                            }
+                            None => now.push(i.name.clone()),
+                        }
+                        set_folds(now);
+                    }
+                },
+                ('z', "R") => {
+                    tree.update(|t| {
+                        if let Some(t) = t {
+                            t.spec.open.clear();
+                        }
+                    });
+                    set_folds(Vec::new());
+                }
+                ('z', "M") => {
+                    let parents: Vec<String> = items.with_untracked(|its| {
+                        let its = its.as_deref().unwrap_or_default();
+                        let mut out: Vec<String> = Vec::new();
+                        for i in its.iter().filter(|i| its.iter().any(|c| c.parent.as_ref() == Some(&i.id))) {
+                            if !out.contains(&i.name) {
+                                out.push(i.name.clone());
+                            }
+                        }
+                        out
+                    });
+                    let mut now = folds();
+                    now.extend(parents.into_iter().filter(|p| !now.contains(p)).collect::<Vec<_>>());
+                    set_folds(now);
+                }
+                ('g', "d") => match it.and_then(|i| i.first) {
+                    Some(first) => {
+                        focus.set(Some(first));
+                        msg.set("first copy".into());
+                    }
+                    None => msg.set("gd jumps from a repeat (↑) to its first copy".into()),
+                },
+                _ => {}
+            }
+            ev.prevent_default();
+            return;
+        }
+
         match (key.as_str(), ev.ctrl_key()) {
             ("h" | "j" | "k" | "l", false) => {
                 if let Some(next) = canvas_nearest(&at, &key) {
@@ -470,17 +654,111 @@ fn App() -> impl IntoView {
             ("a", false) => open_prompt(Ask::Loose),
             ("c", false) => open_prompt(Ask::Connect),
             ("/", false) => open_prompt(Ask::Search),
-            ("d", false) if !second_d => pending_d.set(true),
-            ("d", false) => {
-                if let Some(name) = at.strip_prefix("n:") {
-                    send(Edit::DeleteNode { name: name.to_string() }, None);
-                    focus.set(None);
-                } else if let Some(i) = at.strip_prefix("e:").and_then(|i| i.parse().ok()) {
-                    send(Edit::DeleteEdge { index: i }, None);
-                    focus.set(None);
-                } else if at.starts_with("g:") {
-                    msg.set("deleting a group comes with groups, in step 4".into());
+            ("d" | "z" | "g", false) => pending.set(key.chars().next()),
+            ("t" | "T", false) => {
+                let Some(a) = anchor() else {
+                    msg.set("focus a node first (h j k l, or click one)".into());
+                    return;
+                };
+                let follow_in = key == "T";
+                let ks = m.with_untracked(|mm| common_kind(mm, &a, follow_in));
+                let spec = Spec {
+                    root: a.clone(),
+                    follow_in,
+                    kinds: ks.clone(),
+                    direction: if follow_in { "left" } else { "right" }.into(),
+                    ..Spec::default()
+                };
+                tree.set(Some(TreeState { spec, view: None }));
+                focus.set(Some("t:0".into()));
+                let what = if follow_in { "what it needs" } else { "what it unlocks" };
+                let along = if ks.is_empty() { "every edge".to_string() } else { ks.join(" ") };
+                msg.set(format!("tree from {a}: {what}, along {along}; ; changes the kind, L leaves"));
+            }
+            ("V", false) => {
+                let views = m.with_untracked(|mm| mm.views.clone());
+                if views.is_empty() {
+                    msg.set("the file has no View records".into());
+                    return;
                 }
+                let i = view_at.get_value().map_or(0, |i| (i + 1) % views.len());
+                view_at.set_value(Some(i));
+                let v = &views[i];
+                match (v.layout.as_str(), &v.root) {
+                    ("tree", Some(root)) => {
+                        let spec = Spec {
+                            root: root.clone(),
+                            follow_in: v.follow_in,
+                            kinds: v.edges.clone(),
+                            full: v.full,
+                            collapse: v.collapse.clone(),
+                            open: Vec::new(),
+                            direction: v
+                                .direction
+                                .clone()
+                                .unwrap_or_else(|| if v.follow_in { "left" } else { "right" }.into()),
+                        };
+                        tree.set(Some(TreeState {
+                            spec,
+                            view: Some(v.name.clone()),
+                        }));
+                        focus.set(Some("t:0".into()));
+                    }
+                    _ => {
+                        tree.set(None);
+                        kinds.set(v.edges.clone());
+                        layout.set(if LAYOUTS.contains(&v.layout.as_str()) {
+                            v.layout.clone()
+                        } else {
+                            "layered".into()
+                        });
+                    }
+                }
+                let filter = v
+                    .filter
+                    .as_ref()
+                    .map(|f| format!(" (its Filter {f:?} is not applied yet)"))
+                    .unwrap_or_default();
+                msg.set(format!("view {} of {}: {}{filter}", i + 1, views.len(), v.name));
+            }
+            (";", false) => {
+                let all = m.with_untracked(|mm| mm.edge_kinds.clone().map(|(_, v)| v).unwrap_or_default());
+                if all.is_empty() {
+                    msg.set("this file has no edge kinds".into());
+                    return;
+                }
+                let now = tree
+                    .with_untracked(|t| t.as_ref().map(|t| t.spec.kinds.clone()))
+                    .unwrap_or_else(|| kinds.get_untracked());
+
+                // All kinds, then each kind in turn, then all again.
+                let next = match now.as_slice() {
+                    [] => vec![all[0].clone()],
+                    [k] => all
+                        .iter()
+                        .position(|x| x == k)
+                        .and_then(|i| all.get(i + 1))
+                        .cloned()
+                        .into_iter()
+                        .collect(),
+                    _ => Vec::new(),
+                };
+                let label = if next.is_empty() {
+                    "every kind".to_string()
+                } else {
+                    next.join(" ")
+                };
+                if tree.with_untracked(Option::is_some) {
+                    tree.update(|t| {
+                        if let Some(t) = t {
+                            t.spec.kinds = next;
+                        }
+                    });
+                    focus.set(Some("t:0".into()));
+                } else {
+                    kinds.set(next);
+                }
+                msg.set(format!("edges: {label}"));
             }
             ("u", false) => history("undo"),
             ("r", true) => history("redo"),
@@ -499,6 +777,11 @@ fn App() -> impl IntoView {
                 hit.set(i);
                 focus.set(Some(all[i].clone()));
                 msg.set(format!("match {} of {len}", i + 1));
+            }
+            ("L", false) if tree.with_untracked(Option::is_some) => {
+                tree.set(None);
+                focus.set(None);
+                msg.set(format!("back to layout {}", layout.get_untracked()));
             }
             ("L", false) => {
                 let now = layout.get_untracked();
@@ -529,6 +812,13 @@ fn App() -> impl IntoView {
     let panel = move || {
         let mm = m.get();
         let f = focus.get().unwrap_or_default();
+
+        // A tree item shows the record it is a copy of.
+        let f = match items.with(|its| its.as_ref().and_then(|its| its.iter().find(|i| i.id == f)).map(|i| i.name.clone())) {
+            Some(name) if mm.nodes.iter().any(|n| n.name == name) => format!("n:{name}"),
+            Some(name) => format!("g:{name}"),
+            None => f,
+        };
         let refusal = refused.get();
         let head = (!refusal.is_empty()).then(|| {
             view! {
@@ -551,7 +841,9 @@ fn App() -> impl IntoView {
     let status = move || {
         let mm = m.get();
         let label = match mode.get() {
-            Mode::Normal if pending_d.get() => "d",
+            Mode::Normal if pending.get() == Some('d') => "d",
+            Mode::Normal if pending.get() == Some('z') => "z",
+            Mode::Normal if pending.get() == Some('g') => "g",
             Mode::Normal => "NORMAL",
             Mode::Prompt(_) => "PROMPT",
             Mode::Help => "HELP",
@@ -562,7 +854,11 @@ fn App() -> impl IntoView {
         view! {
             <span class="mode">{label}</span>
             <span>{file}</span>
-            <span>{format!("layout {}", layout.get())}</span>
+            <span>{tree.with(|t| match t {
+                Some(TreeState { view: Some(v), .. }) => format!("view {v}"),
+                Some(t) => format!("tree {} ({})", t.spec.root, if t.spec.follow_in { "needs" } else { "unlocks" }),
+                None => format!("layout {}{}", layout.get(), kinds.with(|k| if k.is_empty() { String::new() } else { format!(" · {}", k.join(" ")) })),
+            })}</span>
             <span>{format!("{} nodes · {} edges", mm.nodes.len(), mm.edges.len())}</span>
             <span class=bad>{format!("{problems} problems")}</span>
             <span class="msg">{msg.get()}</span>

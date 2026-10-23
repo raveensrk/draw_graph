@@ -20,6 +20,9 @@ function report(event, fields) {
 window.addEventListener("error", (e) => report("ui_error", { message: String(e.message), at: `${e.filename}:${e.lineno}` }));
 window.addEventListener("unhandledrejection", (e) => report("ui_error", { message: String(e.reason && (e.reason.stack || e.reason)) }));
 
+// Fitting a small graph would blow it up; never past this zoom.
+const FIT_MAX_ZOOM = 1.2;
+
 // Drag events closer together than this are one drag.
 const DRAG_SETTLE_MS = 60;
 
@@ -57,9 +60,13 @@ function style() {
       label: "data(label)", "font-size": 11, color: v("--muted"),
       "text-background-color": v("--bg"), "text-background-opacity": 1, "text-background-padding": 2,
     } },
-    { selector: ".focus", style: { "border-width": 3, "border-color": v("--accent"), "line-color": v("--accent"), "target-arrow-color": v("--accent"), width: 3 } },
+    { selector: 'edge[id ^= "te:"]', style: { "curve-style": "taxi", "taxi-direction": "auto", "target-arrow-shape": "none" } },
+    { selector: "node.focus", style: { "border-width": 3, "border-color": v("--accent") } },
+    { selector: "edge.focus", style: { "line-color": v("--accent"), "target-arrow-color": v("--accent"), width: 3 } },
     { selector: ".match", style: { "border-width": 2, "border-color": v("--warn") } },
     { selector: ".dim", style: { opacity: 0.25 } },
+    { selector: ".repeat", style: { "border-width": 1.5, "border-style": "dashed", "border-color": v("--muted"), "background-opacity": 0.55 } },
+    { selector: ".looped", style: { "border-width": 1.5, "border-style": "dotted", "border-color": v("--warn"), "background-opacity": 0.55 } },
   ];
 }
 
@@ -130,7 +137,7 @@ window.dgCanvas = {
     // Manual: saved Pos, and ELK places only what has none.
     const unplaced = cy.nodes('[kind = "node"]').filter((n) => !model.nodes.find((m) => "n:" + m.name === n.id()).pos);
     const after = () => {
-      if (refit) cy.fit(undefined, 40);
+      if (refit) fit();
       else cy.viewport(keep);
     };
     if (layout !== "manual") {
@@ -150,6 +157,36 @@ window.dgCanvas = {
       unplaced.forEach((n) => n.position(neighbourSpot(n)));
       after();
     }
+  },
+
+  // Draw a tree (JSON items placed by Rust): copies get their own ids
+  // (t:0.2.1), so one node can show under several parents.
+  //   label ▸ 3   folded, 3 children hidden
+  //   label ↑     a repeat: the full branch is at its first copy (gd)
+  //   label ↺     closes a loop back to a node above it
+  renderTree(itemsJson, refit) {
+    const items = JSON.parse(itemsJson);
+    const keep = { zoom: cy.zoom(), pan: { ...cy.pan() } };
+    cy.elements().remove();
+    const els = [];
+    for (const i of items) {
+      const mark = (i.looped ? " ↺" : i.repeat ? " ↑" : "") + (i.hidden && !i.looped && !i.repeat ? ` ▸ ${i.hidden}` : "");
+      els.push({
+        group: "nodes",
+        data: { id: i.id, name: i.name, kind: "node", label: i.label + mark, color: i.color, shape: SHAPES[i.shape] || "round-rectangle" },
+        position: { x: i.x, y: i.y },
+        classes: (i.repeat ? "repeat " : "") + (i.looped ? "looped" : ""),
+      });
+      if (i.parent) {
+        const [index, style, label] = i.edge || [null, "solid", null];
+        els.push({ group: "edges", data: { id: "te:" + i.id, index, kind: "edge", source: i.parent, target: i.id, label: label || "", style } });
+      }
+    }
+    cy.add(els);
+    cy.nodes().ungrabify(); // a tree's places come from its shape, not drags
+    report("render", { layout: "tree", refit, nodes: items.length });
+    if (refit) fit();
+    else cy.viewport(keep);
   },
 
   // [[name, x, y], ...] for every node (not groups), rounded.
@@ -206,13 +243,21 @@ window.dgCanvas = {
   },
 
   fit() {
-    cy.fit(undefined, 40);
+    fit();
   },
 
   restyle() {
     cy.style(style());
   },
 };
+
+function fit() {
+  cy.fit(undefined, 40);
+  if (cy.zoom() > FIT_MAX_ZOOM) {
+    cy.zoom(FIT_MAX_ZOOM);
+    cy.center();
+  }
+}
 
 // Where a new node goes: right of a neighbour, else the middle of the view.
 function neighbourSpot(n) {

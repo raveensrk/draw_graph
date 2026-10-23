@@ -25,6 +25,13 @@ pub enum Edit {
         field: String,
         value: String,
     },
+    /// Replace every value of a repeated field (a view's Collapse lines).
+    SetList {
+        kind: String,
+        key: String,
+        field: String,
+        values: Vec<String>,
+    },
     /// Set one field of the n-th Edge record; empty removes it.
     SetEdge {
         index: usize,
@@ -97,6 +104,19 @@ fn run(doc: &mut Doc, edit: &Edit) -> Result<(), String> {
         } => {
             let n = find(doc, kind, &key(kind), name)?;
             set(doc, n, field, value, &order(kind))
+        }
+        Edit::SetList {
+            kind,
+            key: name,
+            field,
+            values,
+        } => {
+            let n = find(doc, kind, &key(kind), name)?;
+            doc.remove(n, field, None);
+            for v in values {
+                doc.add(n, field, v);
+            }
+            Ok(())
         }
         Edit::SetEdge { index, field, value } => {
             let n = edge(doc, *index)?;
@@ -309,7 +329,7 @@ mod tests {
         let refs = |t: &str, name: &str| t.lines().filter(|l| l.split_once(": ").is_some_and(|(_, v)| v == name)).count();
         assert_eq!(refs(&text, "rec parser"), 0);
         assert_eq!(refs(&text, "Rec IO"), refs(EXAMPLE, "rec parser"));
-        assert_eq!(refs(EXAMPLE, "rec parser"), 8, "Name, 3 From, 3 To, 1 Collapse");
+        assert_eq!(refs(EXAMPLE, "rec parser"), 7, "Name, 3 From, 3 To");
     }
 
     #[test]
@@ -368,6 +388,21 @@ mod tests {
                 }
             )
             .is_ok()
+        );
+    }
+
+    #[test]
+    fn set_list_replaces_a_repeated_field() {
+        let edit = Edit::SetList {
+            kind: "View".into(),
+            key: "Mind map".into(),
+            field: "Collapse".into(),
+            values: vec!["Flowcharts".into()],
+        };
+        let text = apply(EXAMPLE, &edit).unwrap();
+        assert!(
+            text.contains("Edges: branch relates\nCollapse: Flowcharts\n\nName: Everything"),
+            "both old folds go, the new one stays in place"
         );
     }
 
