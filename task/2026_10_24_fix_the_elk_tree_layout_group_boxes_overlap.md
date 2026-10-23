@@ -1,6 +1,6 @@
 ---
 id: "6axndmb9e9"
-title: "Remove or fix the ELK tree graph layout"
+title: "Fix the ELK tree layout: group boxes overlap"
 state: "todo"
 due: ""
 priority: ""
@@ -17,3 +17,8 @@ The graph layout `tree` (ELK mrtree, stepped to with `L`) lets group boxes overl
 ## Acceptance
 
 - `L` steps through layouts with no overlapping boxes.
+
+
+## 2026-10-24
+
+Keeping `tree` (see the task "Keep only the manual and tree layouts"): fix its overlapping boxes, do not remove it.
